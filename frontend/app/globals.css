@@ -3,6 +3,27 @@
 :root {
   --background: #ffffff;
   --foreground: #171717;
+  --card: #f8f8f8;
+  --card-border: rgba(0, 0, 0, 0.08);
+  --muted: #5f6470;
+  --accent: #9333ea;
+  --accent-hover: #7e22ce;
+  --badge-bg: rgba(147, 51, 234, 0.08);
+  --badge-border: rgba(147, 51, 234, 0.2);
+  --input-bg: #ffffff;
+}
+
+html.dark {
+  --background: #0a0a0a;
+  --foreground: #ededed;
+  --card: rgba(255, 255, 255, 0.05);
+  --card-border: rgba(255, 255, 255, 0.1);
+  --muted: #a1a1aa;
+  --accent: #a855f7;
+  --accent-hover: #9333ea;
+  --badge-bg: rgba(168, 85, 247, 0.12);
+  --badge-border: rgba(168, 85, 247, 0.28);
+  --input-bg: rgba(0, 0, 0, 0.35);
 }
 
 @theme inline {
@@ -12,15 +33,13 @@
   --font-mono: var(--font-geist-mono);
 }
 
-@media (prefers-color-scheme: dark) {
-  :root {
-    --background: #0a0a0a;
-    --foreground: #ededed;
-  }
-}
-
+html,
 body {
   background: var(--background);
   color: var(--foreground);
-  font-family: Arial, Helvetica, sans-serif;
+  transition: background-color 0.25s ease, color 0.25s ease;
+}
+
+body {
+  font-family: var(--font-geist-sans), Arial, Helvetica, sans-serif;
 }

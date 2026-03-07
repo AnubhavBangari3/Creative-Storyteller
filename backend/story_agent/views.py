@@ -14,7 +14,7 @@ from rest_framework.views import APIView
 from rest_framework.response import Response
 from rest_framework import status
 
-from .serializers import StoryGenerateRequestSerializer
+from .serializers import StoryGenerateRequestSerializer,StoryImageGenerateRequestSerializer
 from .services import GeminiStoryService
 from .models import StoryGenerationLog
 
@@ -95,3 +95,37 @@ class StoryGenerateAPIView(APIView):
                 },
                 status=status.HTTP_500_INTERNAL_SERVER_ERROR,
             )
+        
+from .image_services import GeminiImageService
+import traceback
+class StoryImageGenerateAPIView(APIView):
+    def post(self, request, *args, **kwargs):
+        serializer = StoryImageGenerateRequestSerializer(data=request.data)
+        serializer.is_valid(raise_exception=True)
+
+        try:
+            service = GeminiImageService()
+            updated_scenes = service.generate_images_for_scenes(
+                serializer.validated_data["scenes"]
+            )
+
+            return Response(
+                    {
+                        "success": True,
+                        "message": "Scene image processing completed.",
+                        "images_generated": any(s.get("image_url") for s in updated_scenes),
+                        "scenes": updated_scenes,
+                    },
+                    status=status.HTTP_200_OK,
+                )
+        except Exception as exc:
+            print("IMAGE GENERATION ERROR:")
+            traceback.print_exc()
+
+            return Response(
+                {
+                    "success": False,
+                    "message": "Failed to generate scene images.",
+                    "error": str(exc),
+                },
+                status=status.HTTP_500_INTERNAL_SERVER_ERROR,)

@@ -23,3 +23,8 @@ class StoryGenerateRequestSerializer(serializers.Serializer):
         allow_blank=True,
         default=""
     )
+class StoryImageGenerateRequestSerializer(serializers.Serializer):
+    scenes = serializers.ListField(
+        child=serializers.DictField(),
+        allow_empty=False
+    )

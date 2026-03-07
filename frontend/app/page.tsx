@@ -113,7 +113,11 @@ function SceneCard({ scene }: { scene: Scene }) {
           >
             {scene.image_url ? (
               <img
-                src={scene.image_url}
+                src={
+                  scene.image_url.startsWith("http")
+                    ? scene.image_url
+                    : `${API_BASE}${scene.image_url}`
+                }
                 alt={scene.title}
                 className="h-full w-full rounded-2xl object-cover"
               />
@@ -241,46 +245,74 @@ export default function Home() {
     }));
   };
 
-  const handleSubmit = async (e: React.FormEvent<HTMLFormElement>) => {
-    e.preventDefault();
-    setIsGenerating(true);
-    setError("");
-    setStory(null);
-    setStoryId(null);
+const handleSubmit = async (e: React.FormEvent<HTMLFormElement>) => {
+  e.preventDefault();
+  setIsGenerating(true);
+  setError("");
+  setStory(null);
+  setStoryId(null);
 
-    try {
-      const response = await fetch(`${API_BASE}/api/story/generate/`, {
-        method: "POST",
-        headers: {
-          "Content-Type": "application/json",
-        },
-        body: JSON.stringify({
-          topic: formData.topic,
-          tone: formData.tone,
-          language: formData.language,
-          duration: formData.duration,
-          audience: formData.audience,
-          number_of_scenes: 5,
-          style_notes: "epic, mysterious, emotional",
-        }),
-      });
+  try {
+    // Step 1: Generate story structure
+    const storyResponse = await fetch(`${API_BASE}/api/story/generate/`, {
+      method: "POST",
+      headers: {
+        "Content-Type": "application/json",
+      },
+      body: JSON.stringify({
+        topic: formData.topic,
+        tone: formData.tone,
+        language: formData.language,
+        duration: formData.duration,
+        audience: formData.audience,
+        number_of_scenes: 5,
+        style_notes: "epic, mysterious, emotional",
+      }),
+    });
 
-      const result: ApiResponse = await response.json();
+    const storyResult: ApiResponse = await storyResponse.json();
 
-      if (!response.ok || !result.success || !result.data) {
-        throw new Error(result.message || result.error || "Failed to generate story");
-      }
-
-      setStory(result.data);
-      setStoryId(result.story_id ?? null);
-    } catch (err) {
-      const message =
-        err instanceof Error ? err.message : "Something went wrong.";
-      setError(message);
-    } finally {
-      setIsGenerating(false);
+    if (!storyResponse.ok || !storyResult.success || !storyResult.data) {
+      throw new Error(
+        storyResult.message || storyResult.error || "Failed to generate story"
+      );
     }
-  };
+
+    // Step 2: Generate images for scenes
+    const imageResponse = await fetch(`${API_BASE}/api/story/generate-images/`, {
+      method: "POST",
+      headers: {
+        "Content-Type": "application/json",
+      },
+      body: JSON.stringify({
+        scenes: storyResult.data.scenes,
+      }),
+    });
+
+    const imageResult = await imageResponse.json();
+
+    if (!imageResponse.ok || !imageResult.success || !imageResult.scenes) {
+      throw new Error(
+        imageResult.message || imageResult.error || "Failed to generate images"
+      );
+    }
+
+    // Step 3: Merge updated scenes with image URLs
+    const updatedStory: StoryResponseData = {
+      ...storyResult.data,
+      scenes: imageResult.scenes,
+    };
+
+    setStory(updatedStory);
+    setStoryId(storyResult.story_id ?? null);
+  } catch (err) {
+    const message =
+      err instanceof Error ? err.message : "Something went wrong.";
+    setError(message);
+  } finally {
+    setIsGenerating(false);
+  }
+};
 
   return (
     <main

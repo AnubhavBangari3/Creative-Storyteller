@@ -1,5 +1,5 @@
 import json
-from typing import List
+from typing import List, Optional
 
 from django.conf import settings
 from pydantic import BaseModel, Field
@@ -12,7 +12,10 @@ class StoryScene(BaseModel):
     title: str = Field(..., description="Short scene title")
     narration: str = Field(..., description="Voiceover-ready narration")
     visual_prompt: str = Field(..., description="Detailed image-generation prompt")
+    text_overlay: str = Field(..., description="Short on-screen text overlay for the scene")
     audio_cue: str = Field(..., description="Suggested sound design or music cue")
+    image_url: str = Field(default="", description="Generated image URL for this scene, empty until image generation step")
+    audio_url: str = Field(default="", description="Generated narration audio URL for this scene, empty until audio generation step")
     duration_seconds: int = Field(..., description="Estimated scene duration in seconds")
 
 
@@ -63,12 +66,18 @@ Requirements:
    - title
    - narration
    - visual_prompt
+   - text_overlay
    - audio_cue
+   - image_url
+   - audio_url
    - duration_seconds
 5. visual_prompt should be rich enough for image generation.
 6. narration should be usable as direct voiceover text.
-7. Keep scene flow coherent from beginning to end.
-8. total_estimated_duration_seconds should approximately match the requested duration.
+7. text_overlay must be short, cinematic, and suitable for on-screen display.
+8. image_url must be an empty string.
+9. audio_url must be an empty string.
+10. Keep scene flow coherent from beginning to end.
+11. total_estimated_duration_seconds should approximately match the requested duration.
 """
 
     def generate_story(
@@ -111,10 +120,41 @@ Requirements:
         )
 
         if getattr(response, "parsed", None):
-            return response.parsed
+            parsed = response.parsed
+            return self._normalize_output(parsed)
 
         if not getattr(response, "text", None):
             raise ValueError("Gemini returned an empty response.")
 
         data = json.loads(response.text)
-        return StoryOutput(**data)
+        parsed = StoryOutput(**data)
+        return self._normalize_output(parsed)
+
+    def _normalize_output(self, output: StoryOutput) -> StoryOutput:
+        """
+        Ensures image_url and audio_url are always present as empty strings
+        for T14, even if the model omits them.
+        """
+        normalized_scenes = []
+
+        for scene in output.scenes:
+            scene_data = scene.model_dump()
+
+            if "image_url" not in scene_data or scene_data["image_url"] is None:
+                scene_data["image_url"] = ""
+
+            if "audio_url" not in scene_data or scene_data["audio_url"] is None:
+                scene_data["audio_url"] = ""
+
+            if "text_overlay" not in scene_data or not scene_data["text_overlay"]:
+                scene_data["text_overlay"] = scene_data["title"]
+
+            normalized_scenes.append(StoryScene(**scene_data))
+
+        return StoryOutput(
+            title=output.title,
+            logline=output.logline,
+            overall_style=output.overall_style,
+            total_estimated_duration_seconds=output.total_estimated_duration_seconds,
+            scenes=normalized_scenes,
+        )

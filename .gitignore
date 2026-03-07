@@ -5,6 +5,7 @@
 # Python
 __pycache__/
 *.pyc
+*.png
 db.sqlite3
 venv/
 env/

@@ -43,9 +43,9 @@ export default function Home() {
       style={{ background: "var(--background)", color: "var(--foreground)" }}
     >
       <section className="mx-auto flex min-h-screen w-full max-w-7xl items-center justify-center px-6 py-12">
-        <div className="fixed right-6 top-6 z-50">
-          <ThemeToggle />
-        </div>
+        <div className="fixed left-6 top-6 z-50">
+  <ThemeToggle />
+</div>
 
         <div className="grid w-full gap-10 lg:grid-cols-2">
           <div className="flex flex-col justify-center space-y-6">

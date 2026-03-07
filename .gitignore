@@ -9,6 +9,7 @@ __pycache__/
 db.sqlite3
 venv/
 env/
+backend/story_agent/migrations/*.py
 
 # Django
 media/

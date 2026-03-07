@@ -26,7 +26,14 @@ SECRET_KEY = 'django-insecure-5q@9ori5t8&*%70$n$km7ll6!xu5bhjz*$-ab8ns3+)r826wt$
 DEBUG = True
 
 ALLOWED_HOSTS = []
+from dotenv import load_dotenv
+import os
 
+BASE_DIR = Path(__file__).resolve().parent.parent
+load_dotenv(BASE_DIR / ".env")
+
+GEMINI_API_KEY = os.getenv("GEMINI_API_KEY", "")
+GEMINI_MODEL = os.getenv("GEMINI_MODEL", "gemini-2.0-flash")
 
 # Application definition
 
@@ -110,7 +117,7 @@ AUTH_PASSWORD_VALIDATORS = [
 
 LANGUAGE_CODE = 'en-us'
 
-TIME_ZONE = 'UTC'
+TIME_ZONE = 'Asia/Kolkata'
 
 USE_I18N = True
 

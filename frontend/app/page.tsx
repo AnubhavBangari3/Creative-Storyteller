@@ -55,6 +55,70 @@ type SceneMediaApiResponse = {
 const API_BASE =
   process.env.NEXT_PUBLIC_API_BASE_URL || "http://127.0.0.1:8000";
 
+function Navbar() {
+  return (
+    <header className="sticky top-0 z-50 w-full border-b backdrop-blur-xl">
+      <div
+        className="mx-auto flex h-20 w-full max-w-7xl items-center justify-between px-6"
+        style={{
+          background: "color-mix(in srgb, var(--background) 82%, transparent)",
+          borderColor: "var(--card-border)",
+        }}
+      >
+        <div className="flex items-center gap-3">
+          <div
+            className="flex h-11 w-11 items-center justify-center rounded-2xl border text-lg font-bold"
+            style={{
+              background:
+                "linear-gradient(135deg, var(--accent), color-mix(in srgb, var(--accent) 60%, white))",
+              borderColor: "var(--badge-border)",
+              color: "#fff",
+              boxShadow: "0 10px 30px rgba(139, 92, 246, 0.18)",
+            }}
+          >
+            ✦
+          </div>
+
+          <div>
+            <p className="text-base font-semibold leading-none">
+              Creative Storyteller
+            </p>
+            <p
+              className="mt-1 text-xs"
+              style={{ color: "var(--muted)" }}
+            >
+              AI Creative Director
+            </p>
+          </div>
+        </div>
+
+        <div className="flex items-center gap-3">
+          <div
+            className="hidden rounded-full border px-3 py-1 text-xs font-medium sm:inline-flex"
+            style={{
+              color: "var(--accent)",
+              background: "var(--badge-bg)",
+              borderColor: "var(--badge-border)",
+            }}
+          >
+            Multimodal Story Engine
+          </div>
+
+          <div
+            className="rounded-full border p-1"
+            style={{
+              background: "var(--card)",
+              borderColor: "var(--card-border)",
+            }}
+          >
+            <ThemeToggle />
+          </div>
+        </div>
+      </div>
+    </header>
+  );
+}
+
 function InfoTile({
   label,
   value,
@@ -94,7 +158,9 @@ type SpeakParams = {
   onError?: () => void;
 };
 
-function stopBrowserSpeech(currentUtteranceRef?: React.MutableRefObject<SpeechSynthesisUtterance | null>) {
+function stopBrowserSpeech(
+  currentUtteranceRef?: React.MutableRefObject<SpeechSynthesisUtterance | null>
+) {
   if (typeof window !== "undefined" && "speechSynthesis" in window) {
     window.speechSynthesis.cancel();
   }
@@ -181,7 +247,7 @@ function SceneCard({
 
   return (
     <article
-      className="rounded-3xl border p-5 md:p-6 transition"
+      className="rounded-3xl border p-5 transition md:p-6"
       style={{
         background: "var(--card)",
         borderColor: isActive ? "var(--accent)" : "var(--card-border)",
@@ -477,7 +543,9 @@ export default function Home() {
 
   const [isAutoplaying, setIsAutoplaying] = useState(false);
   const [activeSceneIndex, setActiveSceneIndex] = useState<number>(0);
-  const [speakingSceneNumber, setSpeakingSceneNumber] = useState<number | null>(null);
+  const [speakingSceneNumber, setSpeakingSceneNumber] = useState<number | null>(
+    null
+  );
 
   const autoplayTimeoutRef = useRef<ReturnType<typeof setTimeout> | null>(null);
   const audioRef = useRef<HTMLAudioElement | null>(null);
@@ -754,12 +822,10 @@ export default function Home() {
       className="min-h-screen transition-colors"
       style={{ background: "var(--background)", color: "var(--foreground)" }}
     >
-      <section className="mx-auto w-full max-w-7xl px-6 py-12">
-        <div className="fixed left-6 top-6 z-50">
-          <ThemeToggle />
-        </div>
+      <Navbar />
 
-        <div className="grid min-h-screen items-center gap-10 lg:grid-cols-2">
+      <section className="mx-auto w-full max-w-7xl px-6 pb-12 pt-10">
+        <div className="grid min-h-[calc(100vh-120px)] items-center gap-10 lg:grid-cols-2">
           <div className="flex flex-col justify-center space-y-6">
             <div
               className="inline-flex w-fit rounded-full border px-4 py-1 text-sm"
@@ -1010,10 +1076,7 @@ export default function Home() {
                     value={storyId ? `#${storyId}` : "N/A"}
                   />
                   <InfoTile label="Scenes" value={`${story.scenes.length}`} />
-                  <InfoTile
-                    label="Duration"
-                    value={`${totalSceneDuration}s`}
-                  />
+                  <InfoTile label="Duration" value={`${totalSceneDuration}s`} />
                 </div>
               </div>
 

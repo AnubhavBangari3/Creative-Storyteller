@@ -35,21 +35,23 @@ type StoryResponseData = {
   scenes: Scene[];
 };
 
-type StoryApiResponse = {
+type DirectorPipelineStatus = {
+  story_generated: boolean;
+  images_requested: boolean;
+  audio_requested: boolean;
+  images_generated: boolean;
+  audio_generated: boolean;
+  image_generation_error?: string;
+  audio_generation_error?: string;
+};
+
+type DirectorApiResponse = {
   success: boolean;
   message: string;
   story_id?: number;
+  pipeline?: DirectorPipelineStatus;
   data?: StoryResponseData;
   error?: string;
-};
-
-type SceneMediaApiResponse = {
-  success: boolean;
-  message: string;
-  scenes?: Scene[];
-  error?: string;
-  images_generated?: boolean;
-  audio_generated?: boolean;
 };
 
 const API_BASE =
@@ -83,10 +85,7 @@ function Navbar() {
             <p className="text-base font-semibold leading-none">
               Creative Storyteller
             </p>
-            <p
-              className="mt-1 text-xs"
-              style={{ color: "var(--muted)" }}
-            >
+            <p className="mt-1 text-xs" style={{ color: "var(--muted)" }}>
               AI Creative Director
             </p>
           </div>
@@ -538,6 +537,7 @@ export default function Home() {
 
   const [story, setStory] = useState<StoryResponseData | null>(null);
   const [storyId, setStoryId] = useState<number | null>(null);
+  const [pipeline, setPipeline] = useState<DirectorPipelineStatus | null>(null);
   const [isGenerating, setIsGenerating] = useState(false);
   const [error, setError] = useState("");
 
@@ -724,9 +724,10 @@ export default function Home() {
     setError("");
     setStory(null);
     setStoryId(null);
+    setPipeline(null);
 
     try {
-      const storyResponse = await fetch(`${API_BASE}/api/story/generate/`, {
+      const directorResponse = await fetch(`${API_BASE}/api/story/director/`, {
         method: "POST",
         headers: {
           "Content-Type": "application/json",
@@ -739,73 +740,29 @@ export default function Home() {
           audience: formData.audience,
           number_of_scenes: 5,
           style_notes: "epic, mysterious, emotional",
+          generate_images: true,
+          generate_audio: true,
         }),
       });
 
-      const storyResult: StoryApiResponse = await storyResponse.json();
+      const directorResult: DirectorApiResponse =
+        await directorResponse.json();
 
-      if (!storyResponse.ok || !storyResult.success || !storyResult.data) {
+      if (
+        !directorResponse.ok ||
+        !directorResult.success ||
+        !directorResult.data
+      ) {
         throw new Error(
-          storyResult.message || storyResult.error || "Failed to generate story"
+          directorResult.message ||
+            directorResult.error ||
+            "Failed to run director pipeline"
         );
       }
 
-      let updatedStory: StoryResponseData = { ...storyResult.data };
-
-      try {
-        const imageResponse = await fetch(
-          `${API_BASE}/api/story/generate-images/`,
-          {
-            method: "POST",
-            headers: {
-              "Content-Type": "application/json",
-            },
-            body: JSON.stringify({
-              scenes: updatedStory.scenes,
-            }),
-          }
-        );
-
-        const imageResult: SceneMediaApiResponse = await imageResponse.json();
-
-        if (imageResponse.ok && imageResult.success && imageResult.scenes) {
-          updatedStory = {
-            ...updatedStory,
-            scenes: imageResult.scenes,
-          };
-        }
-      } catch (imageErr) {
-        console.warn("Image generation skipped:", imageErr);
-      }
-
-      try {
-        const audioResponse = await fetch(
-          `${API_BASE}/api/story/generate-audio/`,
-          {
-            method: "POST",
-            headers: {
-              "Content-Type": "application/json",
-            },
-            body: JSON.stringify({
-              scenes: updatedStory.scenes,
-            }),
-          }
-        );
-
-        const audioResult: SceneMediaApiResponse = await audioResponse.json();
-
-        if (audioResponse.ok && audioResult.success && audioResult.scenes) {
-          updatedStory = {
-            ...updatedStory,
-            scenes: audioResult.scenes,
-          };
-        }
-      } catch (audioErr) {
-        console.warn("Audio generation skipped:", audioErr);
-      }
-
-      setStory(updatedStory);
-      setStoryId(storyResult.story_id ?? null);
+      setStory(directorResult.data);
+      setStoryId(directorResult.story_id ?? null);
+      setPipeline(directorResult.pipeline ?? null);
       setActiveSceneIndex(0);
       setSpeakingSceneNumber(null);
     } catch (err) {
@@ -1000,7 +957,7 @@ export default function Home() {
                 style={{ background: "var(--accent)" }}
               >
                 {isGenerating
-                  ? "Generating Story, Images & Audio..."
+                  ? "Running Director Pipeline..."
                   : "Generate Story"}
               </button>
             </form>
@@ -1095,6 +1052,72 @@ export default function Home() {
                 </p>
                 <p className="mt-3 leading-7">{story.overall_style}</p>
               </div>
+
+              {pipeline ? (
+                <div
+                  className="mt-6 rounded-2xl border p-4"
+                  style={{
+                    background: "var(--badge-bg)",
+                    borderColor: "var(--badge-border)",
+                  }}
+                >
+                  <p
+                    className="text-xs font-semibold uppercase tracking-[0.2em]"
+                    style={{ color: "var(--accent)" }}
+                  >
+                    Director Pipeline Status
+                  </p>
+
+                  <div className="mt-4 grid gap-3 md:grid-cols-2 xl:grid-cols-3">
+                    <InfoTile
+                      label="Story Generated"
+                      value={pipeline.story_generated ? "Yes" : "No"}
+                    />
+                    <InfoTile
+                      label="Images Requested"
+                      value={pipeline.images_requested ? "Yes" : "No"}
+                    />
+                    <InfoTile
+                      label="Audio Requested"
+                      value={pipeline.audio_requested ? "Yes" : "No"}
+                    />
+                    <InfoTile
+                      label="Images Generated"
+                      value={pipeline.images_generated ? "Yes" : "No"}
+                    />
+                    <InfoTile
+                      label="Audio Generated"
+                      value={pipeline.audio_generated ? "Yes" : "No"}
+                    />
+                  </div>
+
+                  {pipeline.image_generation_error ? (
+                    <div
+                      className="mt-4 rounded-2xl border p-3 text-sm"
+                      style={{
+                        background: "rgba(245, 158, 11, 0.08)",
+                        borderColor: "rgba(245, 158, 11, 0.25)",
+                        color: "#b45309",
+                      }}
+                    >
+                      Image generation note: {pipeline.image_generation_error}
+                    </div>
+                  ) : null}
+
+                  {pipeline.audio_generation_error ? (
+                    <div
+                      className="mt-4 rounded-2xl border p-3 text-sm"
+                      style={{
+                        background: "rgba(245, 158, 11, 0.08)",
+                        borderColor: "rgba(245, 158, 11, 0.25)",
+                        color: "#b45309",
+                      }}
+                    >
+                      Audio generation note: {pipeline.audio_generation_error}
+                    </div>
+                  ) : null}
+                </div>
+              ) : null}
 
               <div className="mt-6 flex flex-wrap gap-3">
                 <button

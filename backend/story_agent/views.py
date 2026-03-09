@@ -129,3 +129,43 @@ class StoryImageGenerateAPIView(APIView):
                     "error": str(exc),
                 },
                 status=status.HTTP_500_INTERNAL_SERVER_ERROR,)
+        
+from .serializers import (
+    StoryGenerateRequestSerializer,
+    StoryImageGenerateRequestSerializer,
+    StoryAudioGenerateRequestSerializer,
+)
+from .audio_services import GeminiTTSService
+
+class StoryAudioGenerateAPIView(APIView):
+    def post(self, request, *args, **kwargs):
+        serializer = StoryAudioGenerateRequestSerializer(data=request.data)
+        serializer.is_valid(raise_exception=True)
+
+        try:
+            service = GeminiTTSService()
+            updated_scenes = service.generate_audio_for_scenes(
+                serializer.validated_data["scenes"]
+            )
+
+            return Response(
+                {
+                    "success": True,
+                    "message": "Scene audio generation completed.",
+                    "audio_generated": any(s.get("audio_url") for s in updated_scenes),
+                    "scenes": updated_scenes,
+                },
+                status=status.HTTP_200_OK,
+            )
+        except Exception as exc:
+            print("AUDIO GENERATION ERROR:")
+            traceback.print_exc()
+
+            return Response(
+                {
+                    "success": False,
+                    "message": "Failed to generate scene audio.",
+                    "error": str(exc),
+                },
+                status=status.HTTP_500_INTERNAL_SERVER_ERROR,
+            )

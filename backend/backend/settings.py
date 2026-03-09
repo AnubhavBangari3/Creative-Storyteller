@@ -35,6 +35,14 @@ load_dotenv(BASE_DIR / ".env")
 GEMINI_API_KEY = os.getenv("GEMINI_API_KEY", "")
 GEMINI_MODEL = os.getenv("GEMINI_MODEL", "gemini-2.0-flash")
 
+TTS_PROVIDER = os.getenv("TTS_PROVIDER", "browser")  # browser | gcp | gtts
+TTS_LANGUAGE_CODE = os.getenv("TTS_LANGUAGE_CODE", "en-US")
+TTS_VOICE_NAME = os.getenv("TTS_VOICE_NAME", "en-US-Neural2-F")
+TTS_AUDIO_ENCODING = os.getenv("TTS_AUDIO_ENCODING", "MP3")
+GCP_TTS_CREDENTIALS_PATH = os.getenv("GCP_TTS_CREDENTIALS_PATH", "").strip()
+
+if GCP_TTS_CREDENTIALS_PATH and not os.getenv("GOOGLE_APPLICATION_CREDENTIALS"):
+    os.environ["GOOGLE_APPLICATION_CREDENTIALS"] = GCP_TTS_CREDENTIALS_PATH
 # Application definition
 
 INSTALLED_APPS = [

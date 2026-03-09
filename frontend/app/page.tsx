@@ -1,6 +1,6 @@
 "use client";
 
-import { useMemo, useState } from "react";
+import { useEffect, useMemo, useRef, useState } from "react";
 import ThemeToggle from "@/components/theme-toggle";
 
 type StoryFormData = {
@@ -21,6 +21,10 @@ type Scene = {
   image_url: string;
   audio_url: string;
   duration_seconds: number;
+  image_generation_skipped?: boolean;
+  image_generation_reason?: string;
+  audio_generation_skipped?: boolean;
+  audio_generation_reason?: string;
 };
 
 type StoryResponseData = {
@@ -31,12 +35,21 @@ type StoryResponseData = {
   scenes: Scene[];
 };
 
-type ApiResponse = {
+type StoryApiResponse = {
   success: boolean;
   message: string;
   story_id?: number;
   data?: StoryResponseData;
   error?: string;
+};
+
+type SceneMediaApiResponse = {
+  success: boolean;
+  message: string;
+  scenes?: Scene[];
+  error?: string;
+  images_generated?: boolean;
+  audio_generated?: boolean;
 };
 
 const API_BASE =
@@ -65,13 +78,114 @@ function InfoTile({
   );
 }
 
-function SceneCard({ scene }: { scene: Scene }) {
+function getSpeechLanguage(language: string) {
+  const normalized = language.toLowerCase();
+
+  if (normalized.includes("hindi")) return "hi-IN";
+  if (normalized.includes("hinglish")) return "hi-IN";
+  return "en-US";
+}
+
+type SpeakParams = {
+  text: string;
+  language: string;
+  onStart?: () => void;
+  onEnd?: () => void;
+  onError?: () => void;
+};
+
+function stopBrowserSpeech(currentUtteranceRef?: React.MutableRefObject<SpeechSynthesisUtterance | null>) {
+  if (typeof window !== "undefined" && "speechSynthesis" in window) {
+    window.speechSynthesis.cancel();
+  }
+
+  if (currentUtteranceRef) {
+    currentUtteranceRef.current = null;
+  }
+}
+
+function speakNarration({
+  text,
+  language,
+  onStart,
+  onEnd,
+  onError,
+}: SpeakParams): SpeechSynthesisUtterance | null {
+  if (typeof window === "undefined" || !("speechSynthesis" in window)) {
+    alert("Speech synthesis is not supported in this browser.");
+    onError?.();
+    return null;
+  }
+
+  window.speechSynthesis.cancel();
+
+  const utterance = new SpeechSynthesisUtterance(text);
+  utterance.rate = 1;
+  utterance.pitch = 1;
+  utterance.volume = 1;
+  utterance.lang = getSpeechLanguage(language);
+
+  const voices = window.speechSynthesis.getVoices();
+  const targetLangPrefix = utterance.lang.toLowerCase().split("-")[0];
+
+  const matchingVoice = voices.find((voice) =>
+    voice.lang.toLowerCase().startsWith(targetLangPrefix)
+  );
+
+  if (matchingVoice) {
+    utterance.voice = matchingVoice;
+  }
+
+  utterance.onstart = () => {
+    onStart?.();
+  };
+
+  utterance.onend = () => {
+    onEnd?.();
+  };
+
+  utterance.onerror = () => {
+    onError?.();
+  };
+
+  window.speechSynthesis.speak(utterance);
+  return utterance;
+}
+
+function SceneCard({
+  scene,
+  language,
+  isActive,
+  isSpeaking,
+  onPlay,
+  onStop,
+}: {
+  scene: Scene;
+  language: string;
+  isActive?: boolean;
+  isSpeaking?: boolean;
+  onPlay: (scene: Scene) => void;
+  onStop: () => void;
+}) {
+  const resolvedImageUrl = scene.image_url
+    ? scene.image_url.startsWith("http")
+      ? scene.image_url
+      : `${API_BASE}${scene.image_url}`
+    : "";
+
+  const resolvedAudioUrl = scene.audio_url
+    ? scene.audio_url.startsWith("http")
+      ? scene.audio_url
+      : `${API_BASE}${scene.audio_url}`
+    : "";
+
   return (
     <article
-      className="rounded-3xl border p-5 md:p-6"
+      className="rounded-3xl border p-5 md:p-6 transition"
       style={{
         background: "var(--card)",
-        borderColor: "var(--card-border)",
+        borderColor: isActive ? "var(--accent)" : "var(--card-border)",
+        boxShadow: isActive ? "0 0 0 1px var(--accent)" : "none",
       }}
     >
       <div className="mb-4 flex flex-col gap-3 md:flex-row md:items-start md:justify-between">
@@ -89,15 +203,30 @@ function SceneCard({ scene }: { scene: Scene }) {
           <h3 className="mt-3 text-2xl font-semibold">{scene.title}</h3>
         </div>
 
-        <div
-          className="rounded-2xl border px-3 py-2 text-sm"
-          style={{
-            background: "var(--input-bg)",
-            borderColor: "var(--card-border)",
-            color: "var(--muted)",
-          }}
-        >
-          {scene.duration_seconds}s
+        <div className="flex items-center gap-3">
+          {isSpeaking ? (
+            <div
+              className="rounded-2xl border px-3 py-2 text-sm font-medium"
+              style={{
+                background: "var(--badge-bg)",
+                borderColor: "var(--badge-border)",
+                color: "var(--accent)",
+              }}
+            >
+              🔊 Speaking...
+            </div>
+          ) : null}
+
+          <div
+            className="rounded-2xl border px-3 py-2 text-sm"
+            style={{
+              background: "var(--input-bg)",
+              borderColor: "var(--card-border)",
+              color: "var(--muted)",
+            }}
+          >
+            {scene.duration_seconds}s
+          </div>
         </div>
       </div>
 
@@ -111,24 +240,34 @@ function SceneCard({ scene }: { scene: Scene }) {
               borderColor: "var(--card-border)",
             }}
           >
-            {scene.image_url ? (
+            {resolvedImageUrl ? (
               <img
-                src={
-                  scene.image_url.startsWith("http")
-                    ? scene.image_url
-                    : `${API_BASE}${scene.image_url}`
-                }
+                src={resolvedImageUrl}
                 alt={scene.title}
                 className="h-full w-full rounded-2xl object-cover"
               />
             ) : (
               <div className="max-w-md">
-                <p className="text-sm font-medium" style={{ color: "var(--accent)" }}>
+                <p
+                  className="text-sm font-medium"
+                  style={{ color: "var(--accent)" }}
+                >
                   Image Placeholder
                 </p>
-                <p className="mt-2 text-base font-semibold">{scene.text_overlay}</p>
-                <p className="mt-3 text-sm leading-6" style={{ color: "var(--muted)" }}>
-                  Scene image will appear here after T15 image generation.
+                <p className="mt-2 text-base font-semibold">
+                  {scene.text_overlay}
+                </p>
+                <p
+                  className="mt-3 text-sm leading-6"
+                  style={{ color: "var(--muted)" }}
+                >
+                  {scene.image_generation_skipped
+                    ? `Image generation skipped${
+                        scene.image_generation_reason
+                          ? ` (${scene.image_generation_reason})`
+                          : ""
+                      }.`
+                    : "Scene image will appear here after T15 image generation."}
                 </p>
               </div>
             )}
@@ -141,7 +280,10 @@ function SceneCard({ scene }: { scene: Scene }) {
               borderColor: "var(--badge-border)",
             }}
           >
-            <p className="text-xs font-semibold uppercase tracking-[0.2em]" style={{ color: "var(--accent)" }}>
+            <p
+              className="text-xs font-semibold uppercase tracking-[0.2em]"
+              style={{ color: "var(--accent)" }}
+            >
               Text Overlay
             </p>
             <p className="mt-2 text-lg font-medium">{scene.text_overlay}</p>
@@ -156,10 +298,32 @@ function SceneCard({ scene }: { scene: Scene }) {
               borderColor: "var(--card-border)",
             }}
           >
-            <p className="text-xs font-semibold uppercase tracking-[0.2em]" style={{ color: "var(--accent)" }}>
-              Narration
-            </p>
-            <p className="mt-3 leading-7" style={{ color: "var(--foreground)" }}>
+            <div className="flex items-center justify-between gap-3">
+              <p
+                className="text-xs font-semibold uppercase tracking-[0.2em]"
+                style={{ color: "var(--accent)" }}
+              >
+                Narration
+              </p>
+
+              {isSpeaking ? (
+                <span
+                  className="rounded-full px-3 py-1 text-xs font-semibold"
+                  style={{
+                    background: "var(--badge-bg)",
+                    color: "var(--accent)",
+                    border: "1px solid var(--badge-border)",
+                  }}
+                >
+                  🎙️ Live
+                </span>
+              ) : null}
+            </div>
+
+            <p
+              className="mt-3 leading-7"
+              style={{ color: "var(--foreground)" }}
+            >
               {scene.narration}
             </p>
           </section>
@@ -171,10 +335,16 @@ function SceneCard({ scene }: { scene: Scene }) {
               borderColor: "var(--card-border)",
             }}
           >
-            <p className="text-xs font-semibold uppercase tracking-[0.2em]" style={{ color: "var(--accent)" }}>
+            <p
+              className="text-xs font-semibold uppercase tracking-[0.2em]"
+              style={{ color: "var(--accent)" }}
+            >
               Visual Prompt
             </p>
-            <p className="mt-3 text-sm leading-6" style={{ color: "var(--muted)" }}>
+            <p
+              className="mt-3 text-sm leading-6"
+              style={{ color: "var(--muted)" }}
+            >
               {scene.visual_prompt}
             </p>
           </section>
@@ -186,7 +356,10 @@ function SceneCard({ scene }: { scene: Scene }) {
               borderColor: "var(--card-border)",
             }}
           >
-            <p className="text-xs font-semibold uppercase tracking-[0.2em]" style={{ color: "var(--accent)" }}>
+            <p
+              className="text-xs font-semibold uppercase tracking-[0.2em]"
+              style={{ color: "var(--accent)" }}
+            >
               Audio Cue
             </p>
             <p className="mt-3 text-sm leading-6">{scene.audio_cue}</p>
@@ -199,13 +372,86 @@ function SceneCard({ scene }: { scene: Scene }) {
                 color: "var(--muted)",
               }}
             >
-              {scene.audio_url ? (
-                <audio controls className="w-full">
-                  <source src={scene.audio_url} />
-                  Your browser does not support audio playback.
-                </audio>
+              {resolvedAudioUrl ? (
+                <div className="space-y-3">
+                  <audio controls className="w-full">
+                    <source src={resolvedAudioUrl} />
+                    Your browser does not support audio playback.
+                  </audio>
+
+                  <div className="flex flex-wrap gap-2">
+                    <button
+                      type="button"
+                      onClick={() => onPlay(scene)}
+                      className="rounded-xl px-4 py-2 text-sm font-medium text-white"
+                      style={{ background: "var(--accent)" }}
+                    >
+                      ▶ Play
+                    </button>
+
+                    <button
+                      type="button"
+                      onClick={onStop}
+                      className="rounded-xl border px-4 py-2 text-sm font-medium"
+                      style={{
+                        background: "var(--input-bg)",
+                        borderColor: "var(--card-border)",
+                        color: "var(--foreground)",
+                      }}
+                    >
+                      ⏹ Stop
+                    </button>
+                  </div>
+                </div>
               ) : (
-                "Audio placeholder — narration playback will appear here after T17."
+                <div className="space-y-3">
+                  <span className="block">
+                    {scene.audio_generation_skipped
+                      ? `Audio generation skipped${
+                          scene.audio_generation_reason
+                            ? ` (${scene.audio_generation_reason})`
+                            : ""
+                        }.`
+                      : "Audio placeholder — narration playback will appear here after T17."}
+                  </span>
+
+                  {isSpeaking ? (
+                    <div
+                      className="rounded-xl border px-3 py-2 text-sm font-medium"
+                      style={{
+                        background: "var(--badge-bg)",
+                        borderColor: "var(--badge-border)",
+                        color: "var(--accent)",
+                      }}
+                    >
+                      🔊 Narration is playing now
+                    </div>
+                  ) : null}
+
+                  <div className="flex flex-wrap gap-2">
+                    <button
+                      type="button"
+                      onClick={() => onPlay(scene)}
+                      className="rounded-xl px-4 py-2 text-sm font-medium text-white"
+                      style={{ background: "var(--accent)" }}
+                    >
+                      ▶ Play Narration
+                    </button>
+
+                    <button
+                      type="button"
+                      onClick={onStop}
+                      className="rounded-xl border px-4 py-2 text-sm font-medium"
+                      style={{
+                        background: "var(--input-bg)",
+                        borderColor: "var(--card-border)",
+                        color: "var(--foreground)",
+                      }}
+                    >
+                      ⏹ Stop
+                    </button>
+                  </div>
+                </div>
               )}
             </div>
           </section>
@@ -229,10 +475,167 @@ export default function Home() {
   const [isGenerating, setIsGenerating] = useState(false);
   const [error, setError] = useState("");
 
+  const [isAutoplaying, setIsAutoplaying] = useState(false);
+  const [activeSceneIndex, setActiveSceneIndex] = useState<number>(0);
+  const [speakingSceneNumber, setSpeakingSceneNumber] = useState<number | null>(null);
+
+  const autoplayTimeoutRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+  const audioRef = useRef<HTMLAudioElement | null>(null);
+  const currentUtteranceRef = useRef<SpeechSynthesisUtterance | null>(null);
+
   const totalSceneDuration = useMemo(() => {
     if (!story?.scenes?.length) return 0;
     return story.scenes.reduce((sum, scene) => sum + scene.duration_seconds, 0);
   }, [story]);
+
+  const clearAutoplayTimeout = () => {
+    if (autoplayTimeoutRef.current) {
+      clearTimeout(autoplayTimeoutRef.current);
+      autoplayTimeoutRef.current = null;
+    }
+  };
+
+  const stopPlayback = () => {
+    clearAutoplayTimeout();
+    stopBrowserSpeech(currentUtteranceRef);
+
+    if (audioRef.current) {
+      audioRef.current.pause();
+      audioRef.current.currentTime = 0;
+      audioRef.current = null;
+    }
+
+    setSpeakingSceneNumber(null);
+    setIsAutoplaying(false);
+  };
+
+  const playScene = (scene: Scene) => {
+    const resolvedAudioUrl = scene.audio_url
+      ? scene.audio_url.startsWith("http")
+        ? scene.audio_url
+        : `${API_BASE}${scene.audio_url}`
+      : "";
+
+    stopBrowserSpeech(currentUtteranceRef);
+
+    if (audioRef.current) {
+      audioRef.current.pause();
+      audioRef.current.currentTime = 0;
+      audioRef.current = null;
+    }
+
+    setSpeakingSceneNumber(scene.scene_number);
+
+    if (resolvedAudioUrl) {
+      const audio = new Audio(resolvedAudioUrl);
+      audioRef.current = audio;
+
+      audio.onplay = () => {
+        setSpeakingSceneNumber(scene.scene_number);
+      };
+
+      audio.onended = () => {
+        setSpeakingSceneNumber((current) =>
+          current === scene.scene_number ? null : current
+        );
+      };
+
+      audio.onerror = () => {
+        const utterance = speakNarration({
+          text: scene.narration,
+          language: formData.language,
+          onStart: () => setSpeakingSceneNumber(scene.scene_number),
+          onEnd: () =>
+            setSpeakingSceneNumber((current) =>
+              current === scene.scene_number ? null : current
+            ),
+          onError: () =>
+            setSpeakingSceneNumber((current) =>
+              current === scene.scene_number ? null : current
+            ),
+        });
+
+        currentUtteranceRef.current = utterance;
+      };
+
+      audio.play().catch(() => {
+        const utterance = speakNarration({
+          text: scene.narration,
+          language: formData.language,
+          onStart: () => setSpeakingSceneNumber(scene.scene_number),
+          onEnd: () =>
+            setSpeakingSceneNumber((current) =>
+              current === scene.scene_number ? null : current
+            ),
+          onError: () =>
+            setSpeakingSceneNumber((current) =>
+              current === scene.scene_number ? null : current
+            ),
+        });
+
+        currentUtteranceRef.current = utterance;
+      });
+    } else {
+      const utterance = speakNarration({
+        text: scene.narration,
+        language: formData.language,
+        onStart: () => setSpeakingSceneNumber(scene.scene_number),
+        onEnd: () =>
+          setSpeakingSceneNumber((current) =>
+            current === scene.scene_number ? null : current
+          ),
+        onError: () =>
+          setSpeakingSceneNumber((current) =>
+            current === scene.scene_number ? null : current
+          ),
+      });
+
+      currentUtteranceRef.current = utterance;
+    }
+  };
+
+  useEffect(() => {
+    return () => {
+      clearAutoplayTimeout();
+      stopBrowserSpeech(currentUtteranceRef);
+
+      if (audioRef.current) {
+        audioRef.current.pause();
+      }
+    };
+  }, []);
+
+  useEffect(() => {
+    if (!story || !isAutoplaying || !story.scenes.length) return;
+
+    if (activeSceneIndex >= story.scenes.length) {
+      stopPlayback();
+      setActiveSceneIndex(0);
+      return;
+    }
+
+    const currentScene = story.scenes[activeSceneIndex];
+    playScene(currentScene);
+
+    const durationMs = Math.max(currentScene.duration_seconds, 3) * 1000;
+
+    clearAutoplayTimeout();
+    autoplayTimeoutRef.current = setTimeout(() => {
+      setActiveSceneIndex((prev) => prev + 1);
+    }, durationMs);
+
+    return () => {
+      clearAutoplayTimeout();
+    };
+  }, [activeSceneIndex, isAutoplaying, story]);
+
+  const startAutoplay = () => {
+    if (!story?.scenes?.length) return;
+
+    stopPlayback();
+    setActiveSceneIndex(0);
+    setIsAutoplaying(true);
+  };
 
   const handleChange = (
     e: React.ChangeEvent<HTMLInputElement | HTMLSelectElement>
@@ -245,74 +648,106 @@ export default function Home() {
     }));
   };
 
-const handleSubmit = async (e: React.FormEvent<HTMLFormElement>) => {
-  e.preventDefault();
-  setIsGenerating(true);
-  setError("");
-  setStory(null);
-  setStoryId(null);
+  const handleSubmit = async (e: React.FormEvent<HTMLFormElement>) => {
+    e.preventDefault();
 
-  try {
-    // Step 1: Generate story structure
-    const storyResponse = await fetch(`${API_BASE}/api/story/generate/`, {
-      method: "POST",
-      headers: {
-        "Content-Type": "application/json",
-      },
-      body: JSON.stringify({
-        topic: formData.topic,
-        tone: formData.tone,
-        language: formData.language,
-        duration: formData.duration,
-        audience: formData.audience,
-        number_of_scenes: 5,
-        style_notes: "epic, mysterious, emotional",
-      }),
-    });
+    stopPlayback();
+    setIsGenerating(true);
+    setError("");
+    setStory(null);
+    setStoryId(null);
 
-    const storyResult: ApiResponse = await storyResponse.json();
+    try {
+      const storyResponse = await fetch(`${API_BASE}/api/story/generate/`, {
+        method: "POST",
+        headers: {
+          "Content-Type": "application/json",
+        },
+        body: JSON.stringify({
+          topic: formData.topic,
+          tone: formData.tone,
+          language: formData.language,
+          duration: formData.duration,
+          audience: formData.audience,
+          number_of_scenes: 5,
+          style_notes: "epic, mysterious, emotional",
+        }),
+      });
 
-    if (!storyResponse.ok || !storyResult.success || !storyResult.data) {
-      throw new Error(
-        storyResult.message || storyResult.error || "Failed to generate story"
-      );
+      const storyResult: StoryApiResponse = await storyResponse.json();
+
+      if (!storyResponse.ok || !storyResult.success || !storyResult.data) {
+        throw new Error(
+          storyResult.message || storyResult.error || "Failed to generate story"
+        );
+      }
+
+      let updatedStory: StoryResponseData = { ...storyResult.data };
+
+      try {
+        const imageResponse = await fetch(
+          `${API_BASE}/api/story/generate-images/`,
+          {
+            method: "POST",
+            headers: {
+              "Content-Type": "application/json",
+            },
+            body: JSON.stringify({
+              scenes: updatedStory.scenes,
+            }),
+          }
+        );
+
+        const imageResult: SceneMediaApiResponse = await imageResponse.json();
+
+        if (imageResponse.ok && imageResult.success && imageResult.scenes) {
+          updatedStory = {
+            ...updatedStory,
+            scenes: imageResult.scenes,
+          };
+        }
+      } catch (imageErr) {
+        console.warn("Image generation skipped:", imageErr);
+      }
+
+      try {
+        const audioResponse = await fetch(
+          `${API_BASE}/api/story/generate-audio/`,
+          {
+            method: "POST",
+            headers: {
+              "Content-Type": "application/json",
+            },
+            body: JSON.stringify({
+              scenes: updatedStory.scenes,
+            }),
+          }
+        );
+
+        const audioResult: SceneMediaApiResponse = await audioResponse.json();
+
+        if (audioResponse.ok && audioResult.success && audioResult.scenes) {
+          updatedStory = {
+            ...updatedStory,
+            scenes: audioResult.scenes,
+          };
+        }
+      } catch (audioErr) {
+        console.warn("Audio generation skipped:", audioErr);
+      }
+
+      setStory(updatedStory);
+      setStoryId(storyResult.story_id ?? null);
+      setActiveSceneIndex(0);
+      setSpeakingSceneNumber(null);
+    } catch (err) {
+      const message =
+        err instanceof Error ? err.message : "Something went wrong.";
+      setError(message);
+    } finally {
+      setIsGenerating(false);
     }
-
-    // Step 2: Generate images for scenes
-    const imageResponse = await fetch(`${API_BASE}/api/story/generate-images/`, {
-      method: "POST",
-      headers: {
-        "Content-Type": "application/json",
-      },
-      body: JSON.stringify({
-        scenes: storyResult.data.scenes,
-      }),
-    });
-
-    const imageResult = await imageResponse.json();
-
-    if (!imageResponse.ok || !imageResult.success || !imageResult.scenes) {
-      throw new Error(
-        imageResult.message || imageResult.error || "Failed to generate images"
-      );
-    }
-
-    // Step 3: Merge updated scenes with image URLs
-    const updatedStory: StoryResponseData = {
-      ...storyResult.data,
-      scenes: imageResult.scenes,
-    };
-
-    setStory(updatedStory);
-    setStoryId(storyResult.story_id ?? null);
-  } catch (err) {
-    const message =
-      err instanceof Error ? err.message : "Something went wrong.";
-    setError(message);
-  } finally {
-    setIsGenerating(false);
-  }
-};
+  };
 
   return (
     <main
@@ -498,7 +933,9 @@ const handleSubmit = async (e: React.FormEvent<HTMLFormElement>) => {
                 className="w-full rounded-2xl px-6 py-3 text-base font-semibold text-white transition disabled:cursor-not-allowed disabled:opacity-70"
                 style={{ background: "var(--accent)" }}
               >
-                {isGenerating ? "Generating Story..." : "Generate Story"}
+                {isGenerating
+                  ? "Generating Story, Images & Audio..."
+                  : "Generate Story"}
               </button>
             </form>
 
@@ -572,10 +1009,7 @@ const handleSubmit = async (e: React.FormEvent<HTMLFormElement>) => {
                     label="Story ID"
                     value={storyId ? `#${storyId}` : "N/A"}
                   />
-                  <InfoTile
-                    label="Scenes"
-                    value={`${story.scenes.length}`}
-                  />
+                  <InfoTile label="Scenes" value={`${story.scenes.length}`} />
                   <InfoTile
                     label="Duration"
                     value={`${totalSceneDuration}s`}
@@ -590,16 +1024,85 @@ const handleSubmit = async (e: React.FormEvent<HTMLFormElement>) => {
                   borderColor: "var(--card-border)",
                 }}
               >
-                <p className="text-xs font-semibold uppercase tracking-[0.2em]" style={{ color: "var(--accent)" }}>
+                <p
+                  className="text-xs font-semibold uppercase tracking-[0.2em]"
+                  style={{ color: "var(--accent)" }}
+                >
                   Overall Style
                 </p>
                 <p className="mt-3 leading-7">{story.overall_style}</p>
               </div>
+
+              <div className="mt-6 flex flex-wrap gap-3">
+                <button
+                  type="button"
+                  onClick={startAutoplay}
+                  disabled={isAutoplaying}
+                  className="rounded-2xl px-5 py-3 text-sm font-semibold text-white disabled:cursor-not-allowed disabled:opacity-70"
+                  style={{ background: "var(--accent)" }}
+                >
+                  {isAutoplaying ? "Autoplay Running..." : "▶ Start Autoplay"}
+                </button>
+
+                <button
+                  type="button"
+                  onClick={stopPlayback}
+                  className="rounded-2xl border px-5 py-3 text-sm font-semibold"
+                  style={{
+                    background: "var(--input-bg)",
+                    borderColor: "var(--card-border)",
+                    color: "var(--foreground)",
+                  }}
+                >
+                  ⏹ Stop Playback
+                </button>
+
+                <div
+                  className="rounded-2xl border px-4 py-3 text-sm"
+                  style={{
+                    background: "var(--badge-bg)",
+                    borderColor: "var(--badge-border)",
+                    color: "var(--muted)",
+                  }}
+                >
+                  Active Scene:{" "}
+                  <span
+                    className="font-semibold"
+                    style={{ color: "var(--foreground)" }}
+                  >
+                    {story.scenes[activeSceneIndex]?.scene_number ?? 1}
+                  </span>
+                </div>
+
+                <div
+                  className="rounded-2xl border px-4 py-3 text-sm font-medium"
+                  style={{
+                    background: "var(--badge-bg)",
+                    borderColor: "var(--badge-border)",
+                    color:
+                      speakingSceneNumber !== null
+                        ? "var(--accent)"
+                        : "var(--muted)",
+                  }}
+                >
+                  {speakingSceneNumber !== null
+                    ? `🔊 Speaking Scene ${speakingSceneNumber}`
+                    : "Silent"}
+                </div>
+              </div>
             </div>
 
             <div className="space-y-6">
-              {story.scenes.map((scene) => (
-                <SceneCard key={scene.scene_number} scene={scene} />
+              {story.scenes.map((scene, index) => (
+                <SceneCard
+                  key={scene.scene_number}
+                  scene={scene}
+                  language={formData.language}
+                  isActive={isAutoplaying && activeSceneIndex === index}
+                  isSpeaking={speakingSceneNumber === scene.scene_number}
+                  onPlay={playScene}
+                  onStop={stopPlayback}
+                />
               ))}
             </div>
           </section>

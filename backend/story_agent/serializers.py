@@ -28,3 +28,9 @@ class StoryImageGenerateRequestSerializer(serializers.Serializer):
         child=serializers.DictField(),
         allow_empty=False
     )
+
+class StoryAudioGenerateRequestSerializer(serializers.Serializer):
+    scenes = serializers.ListField(
+        child=serializers.DictField(),
+        allow_empty=False
+    )

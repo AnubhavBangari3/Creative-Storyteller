@@ -224,6 +224,7 @@ function SceneCard({
   isSpeaking,
   onPlay,
   onStop,
+  sceneRef,
 }: {
   scene: Scene;
   language: string;
@@ -231,6 +232,7 @@ function SceneCard({
   isSpeaking?: boolean;
   onPlay: (scene: Scene) => void;
   onStop: () => void;
+  sceneRef?: (node: HTMLElement | null) => void;
 }) {
   const resolvedImageUrl = scene.image_url
     ? scene.image_url.startsWith("http")
@@ -246,11 +248,14 @@ function SceneCard({
 
   return (
     <article
+      ref={sceneRef}
       className="rounded-3xl border p-5 transition md:p-6"
       style={{
         background: "var(--card)",
         borderColor: isActive ? "var(--accent)" : "var(--card-border)",
-        boxShadow: isActive ? "0 0 0 1px var(--accent)" : "none",
+        boxShadow: isActive
+          ? "0 0 0 1px var(--accent), 0 18px 40px rgba(139, 92, 246, 0.12)"
+          : "none",
       }}
     >
       <div className="mb-4 flex flex-col gap-3 md:flex-row md:items-start md:justify-between">
@@ -550,6 +555,7 @@ export default function Home() {
   const autoplayTimeoutRef = useRef<ReturnType<typeof setTimeout> | null>(null);
   const audioRef = useRef<HTMLAudioElement | null>(null);
   const currentUtteranceRef = useRef<SpeechSynthesisUtterance | null>(null);
+  const sceneRefs = useRef<(HTMLElement | null)[]>([]);
 
   const totalSceneDuration = useMemo(() => {
     if (!story?.scenes?.length) return 0;
@@ -685,6 +691,14 @@ export default function Home() {
     const currentScene = story.scenes[activeSceneIndex];
     playScene(currentScene);
 
+    const currentNode = sceneRefs.current[activeSceneIndex];
+    if (currentNode) {
+      currentNode.scrollIntoView({
+        behavior: "smooth",
+        block: "center",
+      });
+    }
+
     const durationMs = Math.max(currentScene.duration_seconds, 3) * 1000;
 
     clearAutoplayTimeout();
@@ -765,6 +779,7 @@ export default function Home() {
       setPipeline(directorResult.pipeline ?? null);
       setActiveSceneIndex(0);
       setSpeakingSceneNumber(null);
+      sceneRefs.current = [];
     } catch (err) {
       const message =
         err instanceof Error ? err.message : "Something went wrong.";
@@ -1175,6 +1190,21 @@ export default function Home() {
                     ? `🔊 Speaking Scene ${speakingSceneNumber}`
                     : "Silent"}
                 </div>
+
+                <div
+                  className="rounded-2xl border px-4 py-3 text-sm font-medium"
+                  style={{
+                    background: isAutoplaying
+                      ? "var(--badge-bg)"
+                      : "var(--input-bg)",
+                    borderColor: isAutoplaying
+                      ? "var(--badge-border)"
+                      : "var(--card-border)",
+                    color: isAutoplaying ? "var(--accent)" : "var(--muted)",
+                  }}
+                >
+                  {isAutoplaying ? "🎬 Cinematic Autoplay On" : "Autoplay Off"}
+                </div>
               </div>
             </div>
 
@@ -1188,6 +1218,9 @@ export default function Home() {
                   isSpeaking={speakingSceneNumber === scene.scene_number}
                   onPlay={playScene}
                   onStop={stopPlayback}
+                  sceneRef={(node) => {
+                    sceneRefs.current[index] = node;
+                  }}
                 />
               ))}
             </div>
@@ -1197,3 +1230,5 @@ export default function Home() {
     </main>
   );
 }
+
+

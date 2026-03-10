@@ -1,22 +1,75 @@
+import traceback
+
+from rest_framework import status
 from rest_framework.decorators import api_view
 from rest_framework.response import Response
+from rest_framework.views import APIView
+
+from .audio_services import GeminiTTSService
+from .image_services import GeminiImageService
+from .models import StoryGenerationLog
+from .serializers import (
+    StoryAudioGenerateRequestSerializer,
+    StoryDirectorRequestSerializer,
+    StoryGenerateRequestSerializer,
+    StoryImageGenerateRequestSerializer,
+)
+from .services import GeminiStoryService
+
+
+def build_interleaved_output(story_data):
+    scenes = story_data.get("scenes", [])
+    interleaved_output = []
+
+    for scene in scenes:
+        interleaved_output.append(
+            {
+                "scene_number": scene.get("scene_number"),
+                "scene_title": scene.get("title", ""),
+                "duration_seconds": scene.get("duration_seconds", 0),
+                "blocks": [
+                    {
+                        "type": "narration",
+                        "content": scene.get("narration", ""),
+                    },
+                    {
+                        "type": "image",
+                        "url": scene.get("image_url", ""),
+                        "prompt": scene.get("visual_prompt", ""),
+                        "text_overlay": scene.get("text_overlay", ""),
+                        "generation_skipped": scene.get(
+                            "image_generation_skipped", False
+                        ),
+                        "generation_reason": scene.get(
+                            "image_generation_reason", ""
+                        ),
+                    },
+                    {
+                        "type": "audio",
+                        "url": scene.get("audio_url", ""),
+                        "cue": scene.get("audio_cue", ""),
+                        "generation_skipped": scene.get(
+                            "audio_generation_skipped", False
+                        ),
+                        "generation_reason": scene.get(
+                            "audio_generation_reason", ""
+                        ),
+                    },
+                ],
+            }
+        )
+
+    return interleaved_output
 
 
 @api_view(["GET"])
 def health_check(request):
-    return Response({
-        "status": "ok",
-        "message": "Creative Storyteller backend is running"
-    })
-
-
-from rest_framework.views import APIView
-from rest_framework.response import Response
-from rest_framework import status
-
-from .serializers import StoryGenerateRequestSerializer,StoryImageGenerateRequestSerializer,StoryDirectorRequestSerializer
-from .services import GeminiStoryService
-from .models import StoryGenerationLog
+    return Response(
+        {
+            "status": "ok",
+            "message": "Creative Storyteller backend is running",
+        }
+    )
 
 
 class StoryGenerateAPIView(APIView):
@@ -95,9 +148,8 @@ class StoryGenerateAPIView(APIView):
                 },
                 status=status.HTTP_500_INTERNAL_SERVER_ERROR,
             )
-        
-from .image_services import GeminiImageService
-import traceback
+
+
 class StoryImageGenerateAPIView(APIView):
     def post(self, request, *args, **kwargs):
         serializer = StoryImageGenerateRequestSerializer(data=request.data)
@@ -110,14 +162,16 @@ class StoryImageGenerateAPIView(APIView):
             )
 
             return Response(
-                    {
-                        "success": True,
-                        "message": "Scene image processing completed.",
-                        "images_generated": any(s.get("image_url") for s in updated_scenes),
-                        "scenes": updated_scenes,
-                    },
-                    status=status.HTTP_200_OK,
-                )
+                {
+                    "success": True,
+                    "message": "Scene image processing completed.",
+                    "images_generated": any(
+                        s.get("image_url") for s in updated_scenes
+                    ),
+                    "scenes": updated_scenes,
+                },
+                status=status.HTTP_200_OK,
+            )
         except Exception as exc:
             print("IMAGE GENERATION ERROR:")
             traceback.print_exc()
@@ -128,14 +182,9 @@ class StoryImageGenerateAPIView(APIView):
                     "message": "Failed to generate scene images.",
                     "error": str(exc),
                 },
-                status=status.HTTP_500_INTERNAL_SERVER_ERROR,)
-        
-from .serializers import (
-    StoryGenerateRequestSerializer,
-    StoryImageGenerateRequestSerializer,
-    StoryAudioGenerateRequestSerializer,
-)
-from .audio_services import GeminiTTSService
+                status=status.HTTP_500_INTERNAL_SERVER_ERROR,
+            )
+
 
 class StoryAudioGenerateAPIView(APIView):
     def post(self, request, *args, **kwargs):
@@ -152,7 +201,9 @@ class StoryAudioGenerateAPIView(APIView):
                 {
                     "success": True,
                     "message": "Scene audio generation completed.",
-                    "audio_generated": any(s.get("audio_url") for s in updated_scenes),
+                    "audio_generated": any(
+                        s.get("audio_url") for s in updated_scenes
+                    ),
                     "scenes": updated_scenes,
                 },
                 status=status.HTTP_200_OK,
@@ -169,7 +220,8 @@ class StoryAudioGenerateAPIView(APIView):
                 },
                 status=status.HTTP_500_INTERNAL_SERVER_ERROR,
             )
-        
+
+
 class StoryDirectorAPIView(APIView):
     def post(self, request, *args, **kwargs):
         serializer = StoryDirectorRequestSerializer(data=request.data)
@@ -197,7 +249,9 @@ class StoryDirectorAPIView(APIView):
                 try:
                     image_service = GeminiImageService()
                     scenes = image_service.generate_images_for_scenes(scenes)
-                    images_generated = any(scene.get("image_url") for scene in scenes)
+                    images_generated = any(
+                        scene.get("image_url") for scene in scenes
+                    )
                 except Exception as exc:
                     print("DIRECTOR IMAGE GENERATION ERROR:")
                     traceback.print_exc()
@@ -209,7 +263,9 @@ class StoryDirectorAPIView(APIView):
                         if not updated_scene.get("image_url"):
                             updated_scene["image_url"] = ""
                         updated_scene["image_generation_skipped"] = True
-                        updated_scene["image_generation_reason"] = f"director_pipeline_error: {exc}"
+                        updated_scene[
+                            "image_generation_reason"
+                        ] = f"director_pipeline_error: {exc}"
                         fallback_scenes.append(updated_scene)
                     scenes = fallback_scenes
 
@@ -217,7 +273,9 @@ class StoryDirectorAPIView(APIView):
                 try:
                     audio_service = GeminiTTSService()
                     scenes = audio_service.generate_audio_for_scenes(scenes)
-                    audio_generated = any(scene.get("audio_url") for scene in scenes)
+                    audio_generated = any(
+                        scene.get("audio_url") for scene in scenes
+                    )
                 except Exception as exc:
                     print("DIRECTOR AUDIO GENERATION ERROR:")
                     traceback.print_exc()
@@ -229,11 +287,14 @@ class StoryDirectorAPIView(APIView):
                         if not updated_scene.get("audio_url"):
                             updated_scene["audio_url"] = ""
                         updated_scene["audio_generation_skipped"] = True
-                        updated_scene["audio_generation_reason"] = f"director_pipeline_error: {exc}"
+                        updated_scene[
+                            "audio_generation_reason"
+                        ] = f"director_pipeline_error: {exc}"
                         fallback_scenes.append(updated_scene)
                     scenes = fallback_scenes
 
             story_data["scenes"] = scenes
+            interleaved_output = build_interleaved_output(story_data)
 
             log = StoryGenerationLog.objects.create(
                 topic=validated["topic"],
@@ -243,16 +304,25 @@ class StoryDirectorAPIView(APIView):
                 audience=validated.get("audience", ""),
                 number_of_scenes=validated.get("number_of_scenes", 5),
                 style_notes=validated.get("style_notes", ""),
-                response_json=story_data,
+                response_json={
+                    **story_data,
+                    "interleaved_output": interleaved_output,
+                },
                 status="success",
                 error_message=" | ".join(
-                    msg for msg in [
-                        f"image: {image_generation_error}" if image_generation_error else "",
-                        f"audio: {audio_generation_error}" if audio_generation_error else "",
-                    ] if msg
+                    msg
+                    for msg in [
+                        f"image: {image_generation_error}"
+                        if image_generation_error
+                        else "",
+                        f"audio: {audio_generation_error}"
+                        if audio_generation_error
+                        else "",
+                    ]
+                    if msg
                 ),
             )
-
+            print("interleaved_output:",interleaved_output)
             return Response(
                 {
                     "success": True,
@@ -268,10 +338,11 @@ class StoryDirectorAPIView(APIView):
                         "audio_generation_error": audio_generation_error,
                     },
                     "data": story_data,
+                    "interleaved_output": interleaved_output,
                 },
                 status=status.HTTP_200_OK,
             )
-
+        
         except ValueError as exc:
             StoryGenerationLog.objects.create(
                 topic=validated.get("topic", ""),

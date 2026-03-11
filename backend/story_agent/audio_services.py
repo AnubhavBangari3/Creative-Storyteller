@@ -5,6 +5,8 @@ from typing import List, Dict, Any, Optional
 
 from django.conf import settings
 
+from .storage_service import GCSStorageService
+
 try:
     from google.cloud import texttospeech
 except Exception:
@@ -17,6 +19,9 @@ class GeminiTTSService:
         self.language_code = getattr(settings, "TTS_LANGUAGE_CODE", "en-US")
         self.voice_name = getattr(settings, "TTS_VOICE_NAME", "en-US-Neural2-F")
         self.audio_encoding = getattr(settings, "TTS_AUDIO_ENCODING", "MP3")
+
+        self.use_gcs_for_audio = getattr(settings, "USE_GCS_FOR_AUDIO", False)
+        self.storage_service = GCSStorageService() if self.use_gcs_for_audio else None
 
         self.output_dir = Path(settings.MEDIA_ROOT) / "generated_audio"
         self.output_dir.mkdir(parents=True, exist_ok=True)
@@ -49,7 +54,7 @@ class GeminiTTSService:
 
         return texttospeech.AudioEncoding.MP3
 
-    def _save_audio_bytes(self, audio_bytes: bytes, extension: str = ".mp3") -> str:
+    def _save_audio_locally(self, audio_bytes: bytes, extension: str = ".mp3") -> str:
         filename = f"{uuid.uuid4().hex}{extension}"
         filepath = self.output_dir / filename
 
@@ -57,6 +62,32 @@ class GeminiTTSService:
             f.write(audio_bytes)
 
         return f"{settings.MEDIA_URL}generated_audio/{filename}"
+
+    def _upload_audio_to_gcs(self, audio_bytes: bytes, extension: str = "mp3") -> str:
+        if not self.storage_service:
+            raise ValueError("GCS storage service is not initialized for audio.")
+
+        content_type_map = {
+            "mp3": "audio/mpeg",
+            "wav": "audio/wav",
+            "ogg": "audio/ogg",
+        }
+
+        filename = self.storage_service.generate_unique_filename(
+            prefix="generated_audio",
+            extension=extension
+        )
+
+        return self.storage_service.upload_bytes(
+            file_bytes=audio_bytes,
+            destination_blob_name=filename,
+            content_type=content_type_map.get(extension, "audio/mpeg")
+        )
+
+    def _store_audio(self, audio_bytes: bytes, extension: str) -> str:
+        if self.use_gcs_for_audio:
+            return self._upload_audio_to_gcs(audio_bytes, extension=extension)
+        return self._save_audio_locally(audio_bytes, extension=f".{extension}")
 
     def generate_audio_from_text(self, text: str) -> str:
         if self.provider == "browser":
@@ -82,8 +113,8 @@ class GeminiTTSService:
             audio_config=audio_config,
         )
 
-        extension = ".mp3" if self.audio_encoding.upper() == "MP3" else ".wav"
-        return self._save_audio_bytes(response.audio_content, extension)
+        extension = "mp3" if self.audio_encoding.upper() == "MP3" else "wav"
+        return self._store_audio(response.audio_content, extension)
 
     def generate_audio_for_scenes(self, scenes: List[Dict[str, Any]]) -> List[Dict[str, Any]]:
         updated_scenes = []

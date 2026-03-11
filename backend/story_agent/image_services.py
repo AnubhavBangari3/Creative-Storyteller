@@ -1,25 +1,40 @@
-import base64
 import uuid
+from io import BytesIO
 from pathlib import Path
 from typing import List, Dict, Any
+from urllib.parse import quote
 
+import requests
+from PIL import Image
 from django.conf import settings
 from google import genai
-from google.genai import types
+
+from .storage_service import GCSStorageService
 
 
 class GeminiImageService:
     def __init__(self):
-        if not settings.GEMINI_API_KEY:
-            raise ValueError("GEMINI_API_KEY is missing in .env")
-
-        self.client = genai.Client(api_key=settings.GEMINI_API_KEY)
+        self.gemini_enabled = bool(getattr(settings, "GEMINI_API_KEY", ""))
+        self.client = genai.Client(api_key=settings.GEMINI_API_KEY) if self.gemini_enabled else None
         self.model = getattr(settings, "GEMINI_IMAGE_MODEL", "gemini-2.5-flash-image")
+
+        self.pollinations_enabled = getattr(settings, "POLLINATIONS_ENABLED", True)
+        self.pollinations_api_key = getattr(settings, "POLLINATIONS_API_KEY", "")
+        self.pollinations_model = getattr(settings, "POLLINATIONS_IMAGE_MODEL", "flux")
+        self.pollinations_width = getattr(settings, "POLLINATIONS_IMAGE_WIDTH", 1024)
+        self.pollinations_height = getattr(settings, "POLLINATIONS_IMAGE_HEIGHT", 1024)
+
+        print("USING IMAGE MODEL:", self.model)
+        print("POLLINATIONS ENABLED:", self.pollinations_enabled)
+        print("POLLINATIONS MODEL:", self.pollinations_model)
+
+        self.use_gcs_for_images = getattr(settings, "USE_GCS_FOR_IMAGES", False)
+        self.storage_service = GCSStorageService() if self.use_gcs_for_images else None
 
         self.output_dir = Path(settings.MEDIA_ROOT) / "generated_images"
         self.output_dir.mkdir(parents=True, exist_ok=True)
 
-    def _save_image_bytes(self, image_bytes: bytes, extension: str = ".png") -> str:
+    def _save_image_locally(self, image_bytes: bytes, extension: str = ".png") -> str:
         filename = f"{uuid.uuid4().hex}{extension}"
         filepath = self.output_dir / filename
 
@@ -28,57 +43,129 @@ class GeminiImageService:
 
         return f"{settings.MEDIA_URL}generated_images/{filename}"
 
-    def _extract_image_bytes(self, generated_image) -> bytes:
-        # Most common current SDK shape:
-        # generated_image.image.image_bytes
-        nested_image = getattr(generated_image, "image", None)
-        if nested_image is not None:
-            nested_bytes = getattr(nested_image, "image_bytes", None)
-            if nested_bytes:
-                return nested_bytes
+    def _upload_image_to_gcs(self, image_bytes: bytes, extension: str = "png") -> str:
+        if not self.storage_service:
+            raise ValueError("GCS storage service is not initialized for images.")
 
-            nested_b64 = getattr(nested_image, "b64_json", None)
-            if nested_b64:
-                return base64.b64decode(nested_b64)
+        filename = self.storage_service.generate_unique_filename(
+            prefix="generated_images",
+            extension=extension
+        )
 
-        # Fallbacks for other possible SDK shapes
-        direct_bytes = getattr(generated_image, "image_bytes", None)
-        if direct_bytes:
-            return direct_bytes
+        content_type = "image/png" if extension == "png" else "image/jpeg"
 
-        raw_bytes = getattr(generated_image, "bytes", None)
-        if raw_bytes:
-            return raw_bytes
+        return self.storage_service.upload_bytes(
+            file_bytes=image_bytes,
+            destination_blob_name=filename,
+            content_type=content_type
+        )
 
-        b64_data = getattr(generated_image, "b64_json", None)
-        if b64_data:
-            return base64.b64decode(b64_data)
+    def _store_image(self, image_bytes: bytes, extension: str = "png") -> str:
+        if self.use_gcs_for_images:
+            return self._upload_image_to_gcs(image_bytes, extension=extension)
+        return self._save_image_locally(image_bytes, extension=f".{extension}")
 
-        raise ValueError("Unsupported image response format from SDK.")
+    def _normalize_to_png(self, image_bytes: bytes) -> bytes:
+        """
+        Converts returned image bytes into PNG bytes for consistency.
+        """
+        try:
+            image = Image.open(BytesIO(image_bytes)).convert("RGB")
+            output = BytesIO()
+            image.save(output, format="PNG")
+            return output.getvalue()
+        except Exception:
+            # If PIL cannot decode it, return original bytes as-is
+            return image_bytes
 
-    def generate_image_from_prompt(self, prompt: str) -> str:
+    def _generate_with_gemini(self, prompt: str) -> str:
+        if not self.client:
+            raise ValueError("Gemini image client is not configured.")
+
+        print("USING IMAGE MODEL:", self.model)
         print("IMAGE PROMPT:", prompt)
 
         response = self.client.models.generate_content(
             model=self.model,
-            contents=[
-                {
-                    "role": "user",
-                    "parts": [
-                        {"text": f"Generate a cinematic image for: {prompt}"}
-                    ],
-                }
-            ],
+            contents=prompt,
+            config={
+                "response_modalities": ["IMAGE", "TEXT"]
+            },
         )
 
-        print("RAW RESPONSE:", response)
-
-        for part in response.candidates[0].content.parts:
-            if hasattr(part, "inline_data"):
-                image_bytes = part.inline_data.data
-                return self._save_image_bytes(image_bytes)
+        for candidate in getattr(response, "candidates", []) or []:
+            content = getattr(candidate, "content", None)
+            parts = getattr(content, "parts", []) if content else []
+            for part in parts:
+                inline_data = getattr(part, "inline_data", None)
+                if inline_data and getattr(inline_data, "data", None):
+                    image_bytes = inline_data.data
+                    png_bytes = self._normalize_to_png(image_bytes)
+                    return self._store_image(png_bytes, extension="png")
 
         raise ValueError("No image returned from Gemini model.")
+    def _generate_with_pollinations(self, prompt: str) -> str:
+        if not self.pollinations_enabled:
+            raise ValueError("Pollinations fallback is disabled.")
+
+        if not self.pollinations_api_key:
+            raise ValueError("Pollinations API key is missing.")
+
+        encoded_prompt = quote(prompt, safe="")
+        url = f"https://gen.pollinations.ai/image/{encoded_prompt}"
+
+        headers = {
+            "Authorization": f"Bearer {self.pollinations_api_key}"
+        }
+
+        params = {
+            "model": self.pollinations_model,
+            "width": self.pollinations_width,
+            "height": self.pollinations_height,
+        }
+
+        print("POLLINATIONS URL:", url)
+        print("POLLINATIONS PARAMS:", params)
+
+        response = requests.get(url, headers=headers, params=params, timeout=120)
+        response.raise_for_status()
+
+        content_type = response.headers.get("Content-Type", "").lower()
+        if "image" not in content_type:
+            raise ValueError(f"Pollinations returned non-image response: {response.text[:300]}")
+
+        png_bytes = self._normalize_to_png(response.content)
+        return self._store_image(png_bytes, extension="png")
+   
+    def generate_image_from_prompt(self, prompt: str) -> str:
+        gemini_error = None
+
+        # Try Gemini first
+        if self.gemini_enabled:
+            try:
+                return self._generate_with_gemini(prompt)
+            except Exception as exc:
+                gemini_error = str(exc)
+                print("GEMINI IMAGE FAILED:", gemini_error)
+
+        # Fallback to Pollinations
+        if self.pollinations_enabled:
+            try:
+                print("FALLING BACK TO POLLINATIONS...")
+                return self._generate_with_pollinations(prompt)
+            except Exception as exc:
+                pollinations_error = str(exc)
+                print("POLLINATIONS IMAGE FAILED:", pollinations_error)
+                if gemini_error:
+                    raise ValueError(
+                        f"gemini_failed: {gemini_error} | pollinations_failed: {pollinations_error}"
+                    )
+                raise ValueError(f"pollinations_failed: {pollinations_error}")
+
+        if gemini_error:
+            raise ValueError(gemini_error)
+
+        raise ValueError("No image provider is enabled.")
 
     def generate_images_for_scenes(self, scenes: List[Dict[str, Any]]) -> List[Dict[str, Any]]:
         updated_scenes = []
@@ -96,23 +183,23 @@ class GeminiImageService:
 
             try:
                 image_url = self.generate_image_from_prompt(visual_prompt)
-
                 scene_copy["image_url"] = image_url
                 scene_copy["image_generation_skipped"] = False
-
+                scene_copy["image_generation_reason"] = ""
             except Exception as exc:
                 error_text = str(exc)
-
                 print("IMAGE GENERATION SKIPPED:", error_text)
 
-                # graceful fallback
                 scene_copy["image_url"] = ""
                 scene_copy["image_generation_skipped"] = True
 
-                if "quota" in error_text.lower():
+                lowered = error_text.lower()
+                if "quota" in lowered or "resource_exhausted" in lowered:
                     scene_copy["image_generation_reason"] = "quota_exceeded"
-                elif "not found" in error_text.lower():
+                elif "not found" in lowered:
                     scene_copy["image_generation_reason"] = "model_not_available"
+                elif "pollinations_failed" in lowered:
+                    scene_copy["image_generation_reason"] = "fallback_failed"
                 else:
                     scene_copy["image_generation_reason"] = "generation_failed"
 

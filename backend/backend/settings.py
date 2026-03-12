@@ -53,11 +53,6 @@ if GOOGLE_APPLICATION_CREDENTIALS:
 USE_GCS_FOR_IMAGES = os.getenv("USE_GCS_FOR_IMAGES", "false").lower() == "true"
 USE_GCS_FOR_AUDIO = os.getenv("USE_GCS_FOR_AUDIO", "false").lower() == "true"
 
-POLLINATIONS_ENABLED = os.getenv("POLLINATIONS_ENABLED", "true").lower() == "true"
-POLLINATIONS_API_KEY = os.getenv("POLLINATIONS_API_KEY", "")
-POLLINATIONS_IMAGE_MODEL = os.getenv("POLLINATIONS_IMAGE_MODEL", "flux")
-POLLINATIONS_IMAGE_WIDTH = int(os.getenv("POLLINATIONS_IMAGE_WIDTH", "1024"))
-POLLINATIONS_IMAGE_HEIGHT = int(os.getenv("POLLINATIONS_IMAGE_HEIGHT", "1024"))
 
 INSTALLED_APPS = [
     'django.contrib.admin',

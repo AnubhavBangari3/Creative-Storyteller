@@ -8,6 +8,7 @@ from django.conf import settings
 from google import genai
 
 from .storage_service import GCSStorageService
+from .vertex_imagen_service import VertexImagenService
 
 
 class GeminiImageService:
@@ -17,6 +18,9 @@ class GeminiImageService:
         self.client = genai.Client(api_key=self.gemini_api_key) if self.gemini_enabled else None
         self.model = getattr(settings, "GEMINI_IMAGE_MODEL", "gemini-2.5-flash-image")
 
+        self.vertex_image_enabled = getattr(settings, "VERTEX_IMAGE_ENABLED", False)
+        self.vertex_service = VertexImagenService() if self.vertex_image_enabled else None
+
         self.use_gcs_for_images = getattr(settings, "USE_GCS_FOR_IMAGES", False)
         self.storage_service = GCSStorageService() if self.use_gcs_for_images else None
 
@@ -24,6 +28,7 @@ class GeminiImageService:
         self.output_dir.mkdir(parents=True, exist_ok=True)
 
         print("USING IMAGE MODEL:", self.model)
+        print("VERTEX IMAGE ENABLED:", self.vertex_image_enabled)
 
     def _save_image_locally(self, image_bytes: bytes, extension: str = ".png") -> str:
         filename = f"{uuid.uuid4().hex}{extension}"
@@ -66,15 +71,10 @@ class GeminiImageService:
         if not self.client:
             raise ValueError("Gemini image client is not configured.")
 
-        print("USING IMAGE MODEL:", self.model)
-        print("IMAGE PROMPT:", prompt)
-
         response = self.client.models.generate_content(
             model=self.model,
             contents=prompt,
-            config={
-                "response_modalities": ["IMAGE", "TEXT"]
-            },
+            config={"response_modalities": ["IMAGE", "TEXT"]},
         )
 
         for candidate in getattr(response, "candidates", []) or []:
@@ -91,15 +91,13 @@ class GeminiImageService:
         raise ValueError("No image returned from Gemini model.")
 
     def generate_image_from_prompt(self, prompt: str) -> str:
-        if not self.gemini_enabled:
-            raise ValueError("Gemini image generation is not enabled.")
+        if self.vertex_image_enabled and self.vertex_service:
+            return self.vertex_service.generate_image_from_prompt(prompt)
 
-        try:
-            return self._generate_with_gemini(prompt)
-        except Exception as exc:
-            gemini_error = str(exc)
-            print("GEMINI IMAGE FAILED:", gemini_error)
-            raise ValueError(gemini_error)
+        if not self.gemini_enabled:
+            raise ValueError("No image provider is enabled.")
+
+        return self._generate_with_gemini(prompt)
 
     def generate_images_for_scenes(self, scenes: List[Dict[str, Any]]) -> List[Dict[str, Any]]:
         updated_scenes = []
@@ -121,19 +119,21 @@ class GeminiImageService:
                 scene_copy["image_generation_skipped"] = False
                 scene_copy["image_generation_reason"] = ""
             except Exception as exc:
-                error_text = str(exc)
-                print("IMAGE GENERATION SKIPPED:", error_text)
+                error_text = str(exc).lower()
 
                 scene_copy["image_url"] = ""
                 scene_copy["image_generation_skipped"] = True
 
-                lowered = error_text.lower()
-                if "quota" in lowered or "resource_exhausted" in lowered:
+                if "resource_exhausted" in error_text or "quota" in error_text:
                     scene_copy["image_generation_reason"] = "quota_exceeded"
-                elif "not configured" in lowered or "not enabled" in lowered:
-                    scene_copy["image_generation_reason"] = "gemini_not_configured"
-                elif "not found" in lowered:
-                    scene_copy["image_generation_reason"] = "model_not_available"
+                elif "permission" in error_text or "403" in error_text:
+                    scene_copy["image_generation_reason"] = "permission_denied"
+                elif "unauthenticated" in error_text or "401" in error_text:
+                    scene_copy["image_generation_reason"] = "auth_failed"
+                elif "rai reason" in error_text:
+                    scene_copy["image_generation_reason"] = "rai_filtered"
+                elif "not configured" in error_text or "missing" in error_text:
+                    scene_copy["image_generation_reason"] = "provider_not_configured"
                 else:
                     scene_copy["image_generation_reason"] = "generation_failed"
 

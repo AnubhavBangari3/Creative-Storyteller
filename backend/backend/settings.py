@@ -53,7 +53,10 @@ if GOOGLE_APPLICATION_CREDENTIALS:
 USE_GCS_FOR_IMAGES = os.getenv("USE_GCS_FOR_IMAGES", "false").lower() == "true"
 USE_GCS_FOR_AUDIO = os.getenv("USE_GCS_FOR_AUDIO", "false").lower() == "true"
 
-
+VERTEX_IMAGE_ENABLED = os.getenv("VERTEX_IMAGE_ENABLED", "false").lower() == "true"
+VERTEX_IMAGE_MODEL = os.getenv("VERTEX_IMAGE_MODEL", "imagen-4.0-generate-001")
+VERTEX_IMAGE_LOCATION = os.getenv("VERTEX_IMAGE_LOCATION", "us-central1")
+VERTEX_IMAGE_PROVIDER = os.getenv("VERTEX_IMAGE_PROVIDER", "vertex-imagen")
 INSTALLED_APPS = [
     'django.contrib.admin',
     'django.contrib.auth',

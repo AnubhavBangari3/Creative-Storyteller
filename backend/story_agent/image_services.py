@@ -16,7 +16,10 @@ class GeminiImageService:
         self.gemini_api_key = (getattr(settings, "GEMINI_API_KEY", "") or "").strip()
         self.gemini_enabled = bool(self.gemini_api_key)
         self.client = genai.Client(api_key=self.gemini_api_key) if self.gemini_enabled else None
-        self.model = getattr(settings, "GEMINI_IMAGE_MODEL", "gemini-2.5-flash-image")
+        self.model = (
+            getattr(settings, "GEMINI_IMAGE_MODEL", "gemini-2.5-flash-image")
+            or "gemini-2.5-flash-image"
+        )
 
         self.vertex_image_enabled = getattr(settings, "VERTEX_IMAGE_ENABLED", False)
         self.vertex_service = VertexImagenService() if self.vertex_image_enabled else None
@@ -28,7 +31,9 @@ class GeminiImageService:
         self.output_dir.mkdir(parents=True, exist_ok=True)
 
         print("USING IMAGE MODEL:", self.model)
+        print("GEMINI ENABLED:", self.gemini_enabled)
         print("VERTEX IMAGE ENABLED:", self.vertex_image_enabled)
+        print("USE GCS FOR IMAGES:", self.use_gcs_for_images)
 
     def _save_image_locally(self, image_bytes: bytes, extension: str = ".png") -> str:
         filename = f"{uuid.uuid4().hex}{extension}"
@@ -46,6 +51,7 @@ class GeminiImageService:
             extension=extension,
         )
         content_type = "image/png" if extension.lower() == "png" else "image/jpeg"
+
         return self.storage_service.upload_bytes(
             file_bytes=image_bytes,
             destination_blob_name=filename,
@@ -68,6 +74,8 @@ class GeminiImageService:
             raise ValueError("Gemini image client is not configured.")
 
         print("GEMINI IMAGE REQUEST STARTED")
+        print("IMAGE PROMPT:", prompt)
+
         response = self.client.models.generate_content(
             model=self.model,
             contents=prompt,
@@ -77,6 +85,7 @@ class GeminiImageService:
         for candidate in getattr(response, "candidates", []) or []:
             content = getattr(candidate, "content", None)
             parts = getattr(content, "parts", []) if content else []
+
             for part in parts:
                 inline_data = getattr(part, "inline_data", None)
                 if inline_data and getattr(inline_data, "data", None):
@@ -86,18 +95,31 @@ class GeminiImageService:
 
         raise ValueError("No image returned from Gemini model.")
 
-    def generate_image_from_prompt(self, prompt: str) -> str:
-        if self.vertex_image_enabled and self.vertex_service:
-            return self.vertex_service.generate_image_from_prompt(prompt)
+    def generate_image_from_prompt(self, prompt: str, filename_prefix: str = "scene") -> str:
+        if not prompt or not prompt.strip():
+            raise ValueError("Prompt is empty.")
 
+        # Vertex first if enabled
+        if self.vertex_image_enabled and self.vertex_service:
+            return self.vertex_service.generate_image_from_prompt(
+                prompt=prompt,
+                filename_prefix=filename_prefix,
+            )
+
+        # Fallback to Gemini
         if not self.gemini_enabled:
             raise ValueError("No image provider is enabled.")
 
         return self._generate_with_gemini(prompt)
 
+    # Optional compatibility alias
+    def generate_image(self, prompt: str, filename_prefix: str = "scene") -> str:
+        return self.generate_image_from_prompt(prompt=prompt, filename_prefix=filename_prefix)
+
     def generate_images_for_scenes(self, scenes: List[Dict[str, Any]]) -> List[Dict[str, Any]]:
         updated_scenes = []
-        for scene in scenes:
+
+        for index, scene in enumerate(scenes, start=1):
             scene_copy = dict(scene)
             visual_prompt = scene_copy.get("visual_prompt", "").strip()
 
@@ -109,10 +131,14 @@ class GeminiImageService:
                 continue
 
             try:
-                image_url = self.generate_image_from_prompt(visual_prompt)
+                image_url = self.generate_image_from_prompt(
+                    visual_prompt,
+                    filename_prefix=f"scene-{index}",
+                )
                 scene_copy["image_url"] = image_url
                 scene_copy["image_generation_skipped"] = False
                 scene_copy["image_generation_reason"] = ""
+                scene_copy["image_generation_error"] = ""
             except Exception as exc:
                 raw_error = str(exc)
                 error_text = raw_error.lower()
@@ -128,7 +154,7 @@ class GeminiImageService:
                     reason = "permission_denied"
                 elif "unauthenticated" in error_text or "401" in error_text:
                     reason = "auth_failed"
-                elif "rai reason" in error_text:
+                elif "rai reason" in error_text or "rai" in error_text:
                     reason = "rai_filtered"
                 elif "file not found" in error_text or "credentials" in error_text:
                     reason = "provider_not_configured"

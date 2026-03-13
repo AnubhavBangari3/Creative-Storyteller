@@ -23,8 +23,10 @@ type Scene = {
   duration_seconds: number;
   image_generation_skipped?: boolean;
   image_generation_reason?: string;
+  image_generation_error?: string;
   audio_generation_skipped?: boolean;
   audio_generation_reason?: string;
+  audio_generation_error?: string;
 };
 
 type StoryResponseData = {
@@ -54,8 +56,28 @@ type DirectorApiResponse = {
   error?: string;
 };
 
-const API_BASE =
-  process.env.NEXT_PUBLIC_API_BASE_URL || "http://127.0.0.1:8000";
+const RAW_API_BASE =
+  process.env.NEXT_PUBLIC_API_BASE_URL ||
+  (process.env.NODE_ENV === "development" ? "http://127.0.0.1:8000" : "");
+
+const API_BASE = RAW_API_BASE.replace(/\/+$/, "");
+
+function getApiUrl(path: string) {
+  if (!API_BASE) {
+    throw new Error(
+      "Frontend API base URL is missing. Set NEXT_PUBLIC_API_BASE_URL in Vercel and redeploy."
+    );
+  }
+
+  return `${API_BASE}${path.startsWith("/") ? path : `/${path}`}`;
+}
+
+function resolveMediaUrl(url?: string) {
+  if (!url) return "";
+  if (/^https?:\/\//i.test(url)) return url;
+  if (!API_BASE) return "";
+  return `${API_BASE}${url.startsWith("/") ? url : `/${url}`}`;
+}
 
 function Navbar() {
   return (
@@ -82,9 +104,7 @@ function Navbar() {
           </div>
 
           <div>
-            <p className="text-base font-semibold leading-none">
-              Creative Storyteller
-            </p>
+            <p className="text-base font-semibold leading-none">Creative Storyteller</p>
             <p className="mt-1 text-xs" style={{ color: "var(--muted)" }}>
               AI Creative Director
             </p>
@@ -118,13 +138,7 @@ function Navbar() {
   );
 }
 
-function InfoTile({
-  label,
-  value,
-}: {
-  label: string;
-  value: string;
-}) {
+function InfoTile({ label, value }: { label: string; value: string }) {
   return (
     <div
       className="rounded-2xl border p-4"
@@ -201,17 +215,9 @@ function speakNarration({
     utterance.voice = matchingVoice;
   }
 
-  utterance.onstart = () => {
-    onStart?.();
-  };
-
-  utterance.onend = () => {
-    onEnd?.();
-  };
-
-  utterance.onerror = () => {
-    onError?.();
-  };
+  utterance.onstart = () => onStart?.();
+  utterance.onend = () => onEnd?.();
+  utterance.onerror = () => onError?.();
 
   window.speechSynthesis.speak(utterance);
   return utterance;
@@ -234,17 +240,15 @@ function SceneCard({
   onStop: () => void;
   sceneRef?: (node: HTMLElement | null) => void;
 }) {
-  const resolvedImageUrl = scene.image_url
-    ? scene.image_url.startsWith("http")
-      ? scene.image_url
-      : `${API_BASE}${scene.image_url}`
-    : "";
+  const [imageFailed, setImageFailed] = useState(false);
 
-  const resolvedAudioUrl = scene.audio_url
-    ? scene.audio_url.startsWith("http")
-      ? scene.audio_url
-      : `${API_BASE}${scene.audio_url}`
-    : "";
+  useEffect(() => {
+    setImageFailed(false);
+  }, [scene.image_url]);
+
+  const resolvedImageUrl = resolveMediaUrl(scene.image_url);
+  const resolvedAudioUrl = resolveMediaUrl(scene.audio_url);
+  const showImage = Boolean(resolvedImageUrl) && !imageFailed;
 
   return (
     <article
@@ -303,41 +307,40 @@ function SceneCard({
       <div className="grid gap-5 lg:grid-cols-[1.15fr_0.85fr]">
         <div className="space-y-5">
           <div
-            className="flex min-h-[280px] items-center justify-center rounded-3xl border p-6 text-center"
+            className="flex min-h-[280px] items-center justify-center overflow-hidden rounded-3xl border p-6 text-center"
             style={{
               background:
                 "linear-gradient(135deg, var(--badge-bg), transparent 60%)",
               borderColor: "var(--card-border)",
             }}
           >
-            {resolvedImageUrl ? (
+            {showImage ? (
               <img
                 src={resolvedImageUrl}
                 alt={scene.title}
                 className="h-full w-full rounded-2xl object-cover"
+                onError={() => setImageFailed(true)}
               />
             ) : (
               <div className="max-w-md">
-                <p
-                  className="text-sm font-medium"
-                  style={{ color: "var(--accent)" }}
-                >
-                  Image Placeholder
+                <p className="text-sm font-medium" style={{ color: "var(--accent)" }}>
+                  {scene.image_url ? "Image unavailable" : "Image Placeholder"}
                 </p>
                 <p className="mt-2 text-base font-semibold">
-                  {scene.text_overlay}
+                  {scene.text_overlay || scene.title}
                 </p>
-                <p
-                  className="mt-3 text-sm leading-6"
-                  style={{ color: "var(--muted)" }}
-                >
+                <p className="mt-3 text-sm leading-6" style={{ color: "var(--muted)" }}>
                   {scene.image_generation_skipped
                     ? `Image generation skipped${
                         scene.image_generation_reason
                           ? ` (${scene.image_generation_reason})`
                           : ""
                       }.`
-                    : "Scene image will appear here after T15 image generation."}
+                    : scene.image_generation_error
+                    ? `Image failed to load (${scene.image_generation_error}).`
+                    : scene.image_url
+                    ? "Image URL exists, but the file could not be loaded. Check GCS object access, URL validity, or CORS/public permissions."
+                    : "Scene image will appear here after image generation completes."}
                 </p>
               </div>
             )}
@@ -390,10 +393,7 @@ function SceneCard({
               ) : null}
             </div>
 
-            <p
-              className="mt-3 leading-7"
-              style={{ color: "var(--foreground)" }}
-            >
+            <p className="mt-3 leading-7" style={{ color: "var(--foreground)" }}>
               {scene.narration}
             </p>
           </section>
@@ -411,10 +411,7 @@ function SceneCard({
             >
               Visual Prompt
             </p>
-            <p
-              className="mt-3 text-sm leading-6"
-              style={{ color: "var(--muted)" }}
-            >
+            <p className="mt-3 text-sm leading-6" style={{ color: "var(--muted)" }}>
               {scene.visual_prompt}
             </p>
           </section>
@@ -482,7 +479,7 @@ function SceneCard({
                             ? ` (${scene.audio_generation_reason})`
                             : ""
                         }.`
-                      : "Audio placeholder — narration playback will appear here after T17."}
+                      : "Audio placeholder — narration playback will appear here after audio generation."}
                   </span>
 
                   {isSpeaking ? (
@@ -548,9 +545,7 @@ export default function Home() {
 
   const [isAutoplaying, setIsAutoplaying] = useState(false);
   const [activeSceneIndex, setActiveSceneIndex] = useState<number>(0);
-  const [speakingSceneNumber, setSpeakingSceneNumber] = useState<number | null>(
-    null
-  );
+  const [speakingSceneNumber, setSpeakingSceneNumber] = useState<number | null>(null);
 
   const autoplayTimeoutRef = useRef<ReturnType<typeof setTimeout> | null>(null);
   const audioRef = useRef<HTMLAudioElement | null>(null);
@@ -584,11 +579,7 @@ export default function Home() {
   };
 
   const playScene = (scene: Scene) => {
-    const resolvedAudioUrl = scene.audio_url
-      ? scene.audio_url.startsWith("http")
-        ? scene.audio_url
-        : `${API_BASE}${scene.audio_url}`
-      : "";
+    const resolvedAudioUrl = resolveMediaUrl(scene.audio_url);
 
     stopBrowserSpeech(currentUtteranceRef);
 
@@ -669,6 +660,13 @@ export default function Home() {
   };
 
   useEffect(() => {
+    if (typeof window !== "undefined") {
+      console.log("NEXT_PUBLIC_API_BASE_URL:", process.env.NEXT_PUBLIC_API_BASE_URL);
+      console.log("API_BASE:", API_BASE);
+    }
+  }, []);
+
+  useEffect(() => {
     return () => {
       clearAutoplayTimeout();
       stopBrowserSpeech(currentUtteranceRef);
@@ -741,7 +739,11 @@ export default function Home() {
     setPipeline(null);
 
     try {
-      const directorResponse = await fetch(`${API_BASE}/api/story/director/`, {
+      const directorUrl = getApiUrl("/api/story/director/");
+
+      console.log("Director URL:", directorUrl);
+
+      const directorResponse = await fetch(directorUrl, {
         method: "POST",
         headers: {
           "Content-Type": "application/json",
@@ -759,18 +761,21 @@ export default function Home() {
         }),
       });
 
-      const directorResult: DirectorApiResponse =
-        await directorResponse.json();
+      let directorResult: DirectorApiResponse | null = null;
 
-      if (
-        !directorResponse.ok ||
-        !directorResult.success ||
-        !directorResult.data
-      ) {
+      try {
+        directorResult = await directorResponse.json();
+      } catch {
+        throw new Error(
+          `Backend returned a non-JSON response (${directorResponse.status}). Check Cloud Run logs and endpoint URL.`
+        );
+      }
+
+      if (!directorResponse.ok || !directorResult.success || !directorResult.data) {
         throw new Error(
           directorResult.message ||
             directorResult.error ||
-            "Failed to run director pipeline"
+            `Failed to run director pipeline (${directorResponse.status})`
         );
       }
 
@@ -781,8 +786,8 @@ export default function Home() {
       setSpeakingSceneNumber(null);
       sceneRefs.current = [];
     } catch (err) {
-      const message =
-        err instanceof Error ? err.message : "Something went wrong.";
+      const message = err instanceof Error ? err.message : "Something went wrong.";
+      console.error("DIRECTOR PIPELINE ERROR:", err);
       setError(message);
     } finally {
       setIsGenerating(false);
@@ -971,9 +976,7 @@ export default function Home() {
                 className="w-full rounded-2xl px-6 py-3 text-base font-semibold text-white transition disabled:cursor-not-allowed disabled:opacity-70"
                 style={{ background: "var(--accent)" }}
               >
-                {isGenerating
-                  ? "Running Director Pipeline..."
-                  : "Generate Story"}
+                {isGenerating ? "Running Director Pipeline..." : "Generate Story"}
               </button>
             </form>
 
@@ -1000,8 +1003,8 @@ export default function Home() {
               <p className="text-sm">
                 Example:
                 <span className="ml-2">
-                  Topic: Hidden kingdom under the ocean | Tone: Cinematic |
-                  Language: English
+                  Topic: Hidden kingdom under the ocean | Tone: Cinematic | Language:
+                  English
                 </span>
               </p>
             </div>
@@ -1030,9 +1033,7 @@ export default function Home() {
                     Story Playback
                   </div>
 
-                  <h2 className="mt-4 text-3xl font-bold md:text-4xl">
-                    {story.title}
-                  </h2>
+                  <h2 className="mt-4 text-3xl font-bold md:text-4xl">{story.title}</h2>
 
                   <p
                     className="mt-3 max-w-2xl text-base leading-7 md:text-lg"
@@ -1043,10 +1044,7 @@ export default function Home() {
                 </div>
 
                 <div className="grid gap-3 sm:grid-cols-3 md:grid-cols-1 lg:grid-cols-3">
-                  <InfoTile
-                    label="Story ID"
-                    value={storyId ? `#${storyId}` : "N/A"}
-                  />
+                  <InfoTile label="Story ID" value={storyId ? `#${storyId}` : "N/A"} />
                   <InfoTile label="Scenes" value={`${story.scenes.length}`} />
                   <InfoTile label="Duration" value={`${totalSceneDuration}s`} />
                 </div>
@@ -1167,10 +1165,7 @@ export default function Home() {
                   }}
                 >
                   Active Scene:{" "}
-                  <span
-                    className="font-semibold"
-                    style={{ color: "var(--foreground)" }}
-                  >
+                  <span className="font-semibold" style={{ color: "var(--foreground)" }}>
                     {story.scenes[activeSceneIndex]?.scene_number ?? 1}
                   </span>
                 </div>
@@ -1181,9 +1176,7 @@ export default function Home() {
                     background: "var(--badge-bg)",
                     borderColor: "var(--badge-border)",
                     color:
-                      speakingSceneNumber !== null
-                        ? "var(--accent)"
-                        : "var(--muted)",
+                      speakingSceneNumber !== null ? "var(--accent)" : "var(--muted)",
                   }}
                 >
                   {speakingSceneNumber !== null
@@ -1194,9 +1187,7 @@ export default function Home() {
                 <div
                   className="rounded-2xl border px-4 py-3 text-sm font-medium"
                   style={{
-                    background: isAutoplaying
-                      ? "var(--badge-bg)"
-                      : "var(--input-bg)",
+                    background: isAutoplaying ? "var(--badge-bg)" : "var(--input-bg)",
                     borderColor: isAutoplaying
                       ? "var(--badge-border)"
                       : "var(--card-border)",
@@ -1230,5 +1221,3 @@ export default function Home() {
     </main>
   );
 }
-
-

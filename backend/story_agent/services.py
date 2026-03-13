@@ -1,5 +1,5 @@
 import json
-from typing import List, Optional
+from typing import List
 
 from django.conf import settings
 from pydantic import BaseModel, Field
@@ -12,28 +12,52 @@ class StoryScene(BaseModel):
     title: str = Field(..., description="Short scene title")
     narration: str = Field(..., description="Voiceover-ready narration")
     visual_prompt: str = Field(..., description="Detailed image-generation prompt")
-    text_overlay: str = Field(..., description="Short on-screen text overlay for the scene")
+    text_overlay: str = Field(
+        ..., description="Short on-screen text overlay for the scene"
+    )
     audio_cue: str = Field(..., description="Suggested sound design or music cue")
-    image_url: str = Field(default="", description="Generated image URL for this scene, empty until image generation step")
-    audio_url: str = Field(default="", description="Generated narration audio URL for this scene, empty until audio generation step")
-    duration_seconds: int = Field(..., description="Estimated scene duration in seconds")
+    image_url: str = Field(
+        default="",
+        description="Generated image URL for this scene, empty until image generation step",
+    )
+    audio_url: str = Field(
+        default="",
+        description="Generated narration audio URL for this scene, empty until audio generation step",
+    )
+    duration_seconds: int = Field(
+        ..., description="Estimated scene duration in seconds"
+    )
 
 
 class StoryOutput(BaseModel):
     title: str = Field(..., description="Final story title")
     logline: str = Field(..., description="One-line story summary")
     overall_style: str = Field(..., description="Creative direction summary")
-    total_estimated_duration_seconds: int = Field(..., description="Estimated full duration")
+    total_estimated_duration_seconds: int = Field(
+        ..., description="Estimated full duration"
+    )
     scenes: List[StoryScene]
 
 
 class GeminiStoryService:
     def __init__(self):
-        if not settings.GEMINI_API_KEY:
-            raise ValueError("GEMINI_API_KEY is missing in .env")
+        project_id = (getattr(settings, "GCP_PROJECT_ID", "") or "").strip()
+        if not project_id:
+            raise ValueError("GCP_PROJECT_ID is missing in environment variables.")
 
-        self.client = genai.Client(api_key=settings.GEMINI_API_KEY)
-        self.model = getattr(settings, "GEMINI_MODEL", "gemini-3-flash-preview")
+        location = (
+            getattr(settings, "VERTEX_GEMINI_LOCATION", "global") or "global"
+        ).strip()
+
+        self.client = genai.Client(
+            vertexai=True,
+            project=project_id,
+            location=location,
+            http_options=types.HttpOptions(api_version="v1"),
+        )
+
+        # Hardcode for now so env mismatch cannot break deployment
+        self.model = "gemini-2.5-flash"
 
     def build_prompt(
         self,
@@ -78,6 +102,7 @@ Requirements:
 9. audio_url must be an empty string.
 10. Keep scene flow coherent from beginning to end.
 11. total_estimated_duration_seconds should approximately match the requested duration.
+12. Return valid JSON only.
 """
 
     def generate_story(
@@ -124,17 +149,13 @@ Requirements:
             return self._normalize_output(parsed)
 
         if not getattr(response, "text", None):
-            raise ValueError("Gemini returned an empty response.")
+            raise ValueError("Vertex AI Gemini returned an empty response.")
 
         data = json.loads(response.text)
         parsed = StoryOutput(**data)
         return self._normalize_output(parsed)
 
     def _normalize_output(self, output: StoryOutput) -> StoryOutput:
-        """
-        Ensures image_url and audio_url are always present as empty strings
-        for T14, even if the model omits them.
-        """
         normalized_scenes = []
 
         for scene in output.scenes:

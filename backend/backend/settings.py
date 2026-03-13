@@ -25,15 +25,18 @@ SECRET_KEY = 'django-insecure-5q@9ori5t8&*%70$n$km7ll6!xu5bhjz*$-ab8ns3+)r826wt$
 # SECURITY WARNING: don't run with debug turned on in production!
 DEBUG = True
 
-ALLOWED_HOSTS = []
+ALLOWED_HOSTS = ["*"]
 from dotenv import load_dotenv
 import os
 
 BASE_DIR = Path(__file__).resolve().parent.parent
 load_dotenv(BASE_DIR / ".env")
 
-GEMINI_API_KEY = os.getenv("GEMINI_API_KEY", "")
-GEMINI_MODEL = os.getenv("GEMINI_MODEL", "gemini-2.0-flash")
+# GEMINI_API_KEY = os.getenv("GEMINI_API_KEY", "")
+# GEMINI_MODEL = os.getenv("GEMINI_MODEL", "gemini-2.0-flash")
+
+GEMINI_MODEL = os.getenv("GEMINI_MODEL", "gemini-2.5-flash")
+VERTEX_GEMINI_LOCATION = os.getenv("VERTEX_GEMINI_LOCATION", "global")
 
 TTS_PROVIDER = os.getenv("TTS_PROVIDER", "browser")  # browser | gcp | gtts
 TTS_LANGUAGE_CODE = os.getenv("TTS_LANGUAGE_CODE", "en-US")
@@ -41,15 +44,15 @@ TTS_VOICE_NAME = os.getenv("TTS_VOICE_NAME", "en-US-Neural2-F")
 TTS_AUDIO_ENCODING = os.getenv("TTS_AUDIO_ENCODING", "MP3")
 GCP_TTS_CREDENTIALS_PATH = os.getenv("GCP_TTS_CREDENTIALS_PATH", "").strip()
 
-if GCP_TTS_CREDENTIALS_PATH and not os.getenv("GOOGLE_APPLICATION_CREDENTIALS"):
-    os.environ["GOOGLE_APPLICATION_CREDENTIALS"] = GCP_TTS_CREDENTIALS_PATH
+# if GCP_TTS_CREDENTIALS_PATH and not os.getenv("GOOGLE_APPLICATION_CREDENTIALS"):
+#     os.environ["GOOGLE_APPLICATION_CREDENTIALS"] = GCP_TTS_CREDENTIALS_PATH
 # Application definition
 
 GCP_PROJECT_ID = os.getenv("GCP_PROJECT_ID")
 GCP_BUCKET_NAME = os.getenv("GCP_BUCKET_NAME")
-GOOGLE_APPLICATION_CREDENTIALS = os.getenv("GOOGLE_APPLICATION_CREDENTIALS")
-if GOOGLE_APPLICATION_CREDENTIALS:
-    os.environ["GOOGLE_APPLICATION_CREDENTIALS"] = GOOGLE_APPLICATION_CREDENTIALS
+# GOOGLE_APPLICATION_CREDENTIALS = os.getenv("GOOGLE_APPLICATION_CREDENTIALS")
+# if GOOGLE_APPLICATION_CREDENTIALS:
+#     os.environ["GOOGLE_APPLICATION_CREDENTIALS"] = GOOGLE_APPLICATION_CREDENTIALS
 USE_GCS_FOR_IMAGES = os.getenv("USE_GCS_FOR_IMAGES", "false").lower() == "true"
 USE_GCS_FOR_AUDIO = os.getenv("USE_GCS_FOR_AUDIO", "false").lower() == "true"
 
@@ -70,7 +73,7 @@ INSTALLED_APPS = [
 
     "story_agent",
 ]
-CORS_ALLOW_ALL_ORIGINS = True
+CORS_ALLOW_ALL_ORIGINS = False
 MIDDLEWARE = [
           "corsheaders.middleware.CorsMiddleware",
     'django.middleware.security.SecurityMiddleware',
@@ -80,8 +83,11 @@ MIDDLEWARE = [
     'django.contrib.auth.middleware.AuthenticationMiddleware',
     'django.contrib.messages.middleware.MessageMiddleware',
     'django.middleware.clickjacking.XFrameOptionsMiddleware',
+    "whitenoise.middleware.WhiteNoiseMiddleware"
 ]
-
+CORS_ALLOWED_ORIGINS = [
+    "https://creative-storyteller-vercel1.vercel.app",
+]
 ROOT_URLCONF = 'backend.urls'
 
 TEMPLATES = [
@@ -105,10 +111,20 @@ WSGI_APPLICATION = 'backend.wsgi.application'
 # Database
 # https://docs.djangoproject.com/en/5.2/ref/settings/#databases
 
+# DATABASES = {
+#     'default': {
+#         'ENGINE': 'django.db.backends.sqlite3',
+#         'NAME': BASE_DIR / 'db.sqlite3',
+#     }
+# }
+
 DATABASES = {
     'default': {
         'ENGINE': 'django.db.backends.sqlite3',
         'NAME': BASE_DIR / 'db.sqlite3',
+        'OPTIONS': {
+            'timeout': 30,
+        },
     }
 }
 
@@ -148,6 +164,7 @@ USE_TZ = True
 # https://docs.djangoproject.com/en/5.2/howto/static-files/
 
 STATIC_URL = 'static/'
+STATIC_ROOT = BASE_DIR / "staticfiles"
 
 # Default primary key field type
 # https://docs.djangoproject.com/en/5.2/ref/settings/#default-auto-field

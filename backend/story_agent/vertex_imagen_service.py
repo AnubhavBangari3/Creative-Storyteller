@@ -1,140 +1,103 @@
-import base64
-import json
-import os
-import uuid
-from pathlib import Path
+from io import BytesIO
+from uuid import uuid4
 
-import requests
 from django.conf import settings
-from google.auth.transport.requests import Request
-from google.oauth2 import service_account
-
-from .storage_service import GCSStorageService
+from google.cloud import storage
+import vertexai
+from vertexai.preview.vision_models import ImageGenerationModel
 
 
 class VertexImagenService:
     def __init__(self):
         self.project_id = (getattr(settings, "GCP_PROJECT_ID", "") or "").strip()
-        self.location = (getattr(settings, "VERTEX_IMAGE_LOCATION", "us-central1") or "us-central1").strip()
-        self.model = (getattr(settings, "VERTEX_IMAGE_MODEL", "imagen-4.0-generate-001") or "imagen-4.0-generate-001").strip()
-        self.credentials_path = (getattr(settings, "GOOGLE_APPLICATION_CREDENTIALS", "") or "").strip()
+        self.bucket_name = (getattr(settings, "GCP_BUCKET_NAME", "") or "").strip()
+        self.location = (
+            getattr(settings, "VERTEX_IMAGE_LOCATION", "asia-southeast1")
+            or "asia-southeast1"
+        ).strip()
+        self.model_name = (
+            getattr(settings, "VERTEX_IMAGE_MODEL", "imagen-4.0-generate-001")
+            or "imagen-4.0-generate-001"
+        ).strip()
 
-        self.use_gcs_for_images = getattr(settings, "USE_GCS_FOR_IMAGES", False)
-        self.storage_service = GCSStorageService() if self.use_gcs_for_images else None
+        if not self.project_id:
+            raise ValueError("GCP_PROJECT_ID is missing.")
 
-        self.output_dir = Path(settings.MEDIA_ROOT) / "generated_images"
-        self.output_dir.mkdir(parents=True, exist_ok=True)
+        if not self.bucket_name:
+            raise ValueError("GCP_BUCKET_NAME is missing.")
 
         print("VERTEX IMAGE SERVICE INITIALIZING...")
         print("VERTEX PROJECT:", self.project_id)
         print("VERTEX LOCATION:", self.location)
-        print("VERTEX MODEL:", self.model)
-        print("VERTEX CREDENTIALS PATH:", self.credentials_path)
-        print("VERTEX CREDENTIALS EXISTS:", os.path.exists(self.credentials_path) if self.credentials_path else False)
-        print("USE_GCS_FOR_IMAGES:", self.use_gcs_for_images)
+        print("VERTEX MODEL:", self.model_name)
+        print("VERTEX BUCKET:", self.bucket_name)
 
-        if not self.project_id:
-            raise ValueError("GCP_PROJECT_ID is missing.")
-        if not self.credentials_path:
-            raise ValueError("GOOGLE_APPLICATION_CREDENTIALS is missing.")
-        if not os.path.exists(self.credentials_path):
-            raise ValueError(f"GOOGLE_APPLICATION_CREDENTIALS file not found: {self.credentials_path}")
+        vertexai.init(project=self.project_id, location=self.location)
+        self.storage_client = storage.Client(project=self.project_id)
 
-    def _get_credentials(self):
-        scopes = ["https://www.googleapis.com/auth/cloud-platform"]
-        credentials = service_account.Credentials.from_service_account_file(
-            self.credentials_path,
-            scopes=scopes,
-        )
-        return credentials
+    def _upload_image_bytes_to_gcs(
+        self,
+        image_bytes: bytes,
+        filename_prefix: str = "scene",
+        extension: str = "png",
+    ) -> str:
+        if not image_bytes:
+            raise ValueError("Generated image bytes are empty.")
 
-    def _get_access_token(self) -> str:
-        credentials = self._get_credentials()
-        credentials.refresh(Request())
-        print("VERTEX TOKEN REFRESHED SUCCESSFULLY")
-        return credentials.token
+        object_name = f"story-images/{filename_prefix}-{uuid4().hex}.{extension}"
 
-    def _save_image_locally(self, image_bytes: bytes, extension: str = ".png") -> str:
-        filename = f"{uuid.uuid4().hex}{extension}"
-        filepath = self.output_dir / filename
-        with open(filepath, "wb") as f:
-            f.write(image_bytes)
-        return f"{settings.MEDIA_URL}generated_images/{filename}"
+        bucket = self.storage_client.bucket(self.bucket_name)
+        blob = bucket.blob(object_name)
 
-    def _upload_image_to_gcs(self, image_bytes: bytes, extension: str = "png") -> str:
-        if not self.storage_service:
-            raise ValueError("GCS storage service is not initialized for images.")
-
-        filename = self.storage_service.generate_unique_filename(
-            prefix="generated_images",
-            extension=extension,
-        )
         content_type = "image/png" if extension.lower() == "png" else "image/jpeg"
-        return self.storage_service.upload_bytes(
-            file_bytes=image_bytes,
-            destination_blob_name=filename,
+
+        blob.upload_from_file(
+            BytesIO(image_bytes),
             content_type=content_type,
         )
 
-    def _store_image(self, image_bytes: bytes, extension: str = "png") -> str:
-        if self.use_gcs_for_images:
-            return self._upload_image_to_gcs(image_bytes, extension=extension)
-        return self._save_image_locally(image_bytes, extension=f".{extension}")
+        exists = blob.exists(self.storage_client)
+        print("GCS OBJECT NAME:", object_name)
+        print("BLOB EXISTS AFTER UPLOAD:", exists)
 
-    def generate_image_from_prompt(self, prompt: str) -> str:
+        if not exists:
+            raise ValueError("Image upload failed: blob does not exist after upload.")
+
+        # Return normal public URL
+        # Bucket/object must be readable via IAM for browser access.
+        public_url = f"https://storage.googleapis.com/{self.bucket_name}/{object_name}"
+        print("IMAGE PUBLIC URL:", public_url)
+        return public_url
+
+    def generate_image(self, prompt: str, filename_prefix: str = "scene") -> str:
+        if not prompt or not prompt.strip():
+            raise ValueError("Prompt is empty.")
+
         print("VERTEX IMAGEN REQUEST STARTED")
         print("VERTEX PROMPT:", prompt)
 
-        credentials = self._get_credentials()
-        token = self._get_access_token()
+        model = ImageGenerationModel.from_pretrained(self.model_name)
 
-        url = (
-            f"https://{self.location}-aiplatform.googleapis.com/v1/"
-            f"projects/{self.project_id}/locations/{self.location}/"
-            f"publishers/google/models/{self.model}:predict"
+        result = model.generate_images(
+            prompt=prompt,
+            number_of_images=1,
         )
-        print("VERTEX URL:", url)
-        print("VERTEX SERVICE ACCOUNT:", getattr(credentials, "service_account_email", "unknown"))
 
-        headers = {
-            "Authorization": f"Bearer {token}",
-            "Content-Type": "application/json",
-        }
+        if not result or not result.images:
+            raise ValueError("Vertex Imagen returned no images.")
 
-        payload = {
-            "instances": [{"prompt": prompt}],
-            "parameters": {
-                "sampleCount": 1,
-                "aspectRatio": "1:1",
-                "addWatermark": True,
-                "enhancePrompt": True,
-                "outputOptions": {"mimeType": "image/png"},
-            },
-        }
-        print("VERTEX PAYLOAD:", json.dumps(payload)[:1000])
+        generated_image = result.images[0]
+        image_bytes = getattr(generated_image, "_image_bytes", None)
 
-        response = requests.post(url, headers=headers, json=payload, timeout=180)
-        print("VERTEX STATUS:", response.status_code)
-        print("VERTEX RESPONSE:", response.text[:2000])
+        if not image_bytes:
+            raise ValueError("Generated image bytes are empty.")
 
-        if response.status_code >= 400:
-            raise ValueError(
-                f"Vertex Imagen failed: {response.status_code} - {response.text[:1000]}"
-            )
+        return self._upload_image_bytes_to_gcs(
+            image_bytes=image_bytes,
+            filename_prefix=filename_prefix,
+            extension="png",
+        )
 
-        data = response.json()
-        predictions = data.get("predictions", [])
-        if not predictions:
-            raise ValueError(f"Vertex Imagen returned no predictions: {str(data)[:1000]}")
-
-        first = predictions[0]
-        image_b64 = first.get("bytesBase64Encoded")
-        if not image_b64:
-            rai_reason = first.get("raiFilteredReason", "")
-            raise ValueError(
-                f"Vertex Imagen returned no image bytes. RAI reason: {rai_reason or 'unknown'}"
-            )
-
-        image_bytes = base64.b64decode(image_b64)
-        print("VERTEX IMAGE GENERATED SUCCESSFULLY")
-        return self._store_image(image_bytes, extension="png")
+    # backward-compatible method name
+    def generate_image_from_prompt(self, prompt: str, filename_prefix: str = "scene") -> str:
+        return self.generate_image(prompt=prompt, filename_prefix=filename_prefix)

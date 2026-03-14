@@ -49,7 +49,7 @@ The system generates a **multi-scene cinematic story** with narration, visuals, 
 
 # 🏗 System Architecture
 
-![System Architecture](architecture.png)
+![System Architecture](Architecture.png)
 
 ---
 

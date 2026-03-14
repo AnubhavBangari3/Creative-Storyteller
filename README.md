@@ -238,3 +238,35 @@ The backend is deployed on **Google Cloud Run**, while media assets are stored i
 
 - Audio generation may be skipped if **Google Cloud Text-to-Speech quota is exceeded**.
 - The system gracefully continues with **text + image storytelling**.
+
+---
+
+### Test the Application
+
+1. Open the frontend in your browser.
+2. Enter story parameters such as:
+
+Example:
+
+```
+Topic: Why is India the oldest civilization?
+Tone: Cinematic
+Language: English
+Audience: General
+Duration: 1-2 Min
+
+```
+
+![alt text](image.png)
+
+### Expected Output
+
+The system will automatically:
+
+- Generate a structured story using **Gemini**
+- Create **scene-by-scene narration**
+- Generate **AI images for each scene**
+- Attempt to generate **voice narration using Google Cloud Text-to-Speech**
+- Display the story sequentially in the frontend
+
+---

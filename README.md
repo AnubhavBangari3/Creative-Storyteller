@@ -3,7 +3,8 @@ Creative Storyteller
 
 https://creative-storyteller-vercel1.vercel.app/
 
-An AI-powered **multimodal storytelling agent** that transforms a simple idea into a cinematic story using **Gemini, AI-generated images, and voice narration**.
+An AI-powered **multimodal storytelling agent** that transforms a simple idea into a cinematic story using Gemini models on Vertex AI, AI-generated images, and voice narration.
+The system uses Google Vertex AI to orchestrate multimodal AI generation including story text, visual scenes, and narration.
 
 Creative Storyteller acts like an **AI Creative Director**, orchestrating text generation, visual imagery, and narration into a seamless storytelling experience.
 
@@ -11,7 +12,7 @@ Creative Storyteller acts like an **AI Creative Director**, orchestrating text g
 
 # ✨ Features
 
-- 🧠 **AI Story Generation** using Gemini
+- 🧠 **AI Story Generation** using Gemini (via Vertex AI)
 - 🎨 **AI Image Generation** for each story scene
 - 🎙 **Voice Narration** using Google Cloud Text-to-Speech
 - 📖 **Scene-based Story Structure**
@@ -34,13 +35,13 @@ The system generates a **multi-scene cinematic story** with narration, visuals, 
 # 🧠 How It Works
 
 1️⃣ User enters story parameters in the frontend  
-2️⃣ Backend calls **Gemini API** to generate story scenes  
+2️⃣ Backend calls Gemini models through Google Vertex AI to generate structured story scenes.
 3️⃣ Each scene includes:
 - narration text
 - visual prompt
 - audio cue
 
-4️⃣ Images are generated using AI  
+4️⃣ Images are generated using Google Vertex AI image models.
 5️⃣ Narration audio is generated using **Google Text-to-Speech**  
 6️⃣ Media assets are stored in **Google Cloud Storage**  
 7️⃣ Frontend plays the story scene-by-scene
@@ -67,8 +68,8 @@ The system generates a **multi-scene cinematic story** with narration, visuals, 
 - Django REST Framework
 
 ### AI & Cloud
-- Gemini (Google GenAI SDK)
-- Google Vertex AI
+- Gemini Models via Vertex AI
+- Vertex AI Image Generation
 - Google Cloud Run
 - Google Cloud Storage
 - Google Cloud Text-to-Speech

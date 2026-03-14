@@ -48,7 +48,7 @@ The system generates a **multi-scene cinematic story** with narration, visuals, 
 ---
 
 # 🏗 System Architecture
-![Creative Storyteller Architecture](Architecture.png)
+![Creative Storyteller Architecture](architecture.png)
 
 ---
 

@@ -223,18 +223,6 @@ The backend is deployed on **Google Cloud Run**, while media assets are stored i
 
 ---
 
-# Project Workflow
-
-1. User enters story parameters in the frontend.
-2. Request is sent to the Django backend.
-3. Gemini generates cinematic story scenes.
-4. Image generation creates visuals for each scene.
-5. Google Cloud Text-to-Speech generates narration audio.
-6. Media assets are stored in Google Cloud Storage.
-7. The frontend plays the story scene-by-scene.
-
----
-
 # Notes
 
 - Audio generation may be skipped if **Google Cloud Text-to-Speech quota is exceeded**.

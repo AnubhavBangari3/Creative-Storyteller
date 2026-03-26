@@ -20,9 +20,9 @@ class GCSStorageService:
         self.client = storage.Client(project=self.project_id)
         self.bucket = self.client.bucket(self.bucket_name)
 
-        print("GCS STORAGE SERVICE INITIALIZED")
-        print("GCS PROJECT ID:", self.project_id)
-        print("GCS BUCKET NAME:", self.bucket_name)
+        # print("GCS STORAGE SERVICE INITIALIZED")
+        # print("GCS PROJECT ID:", self.project_id)
+        # print("GCS BUCKET NAME:", self.bucket_name)
 
     def generate_unique_filename(self, prefix: str = "files", extension: str = "bin") -> str:
         extension = extension.lstrip(".")
@@ -43,9 +43,9 @@ class GCSStorageService:
         return signed_url
 
     def upload_bytes(self, file_bytes: bytes, destination_blob_name: str, content_type: str = None) -> str:
-        print("UPLOADING BYTES TO GCS...")
-        print("DESTINATION BLOB:", destination_blob_name)
-        print("CONTENT TYPE:", content_type)
+        # print("UPLOADING BYTES TO GCS...")
+        # print("DESTINATION BLOB:", destination_blob_name)
+        # print("CONTENT TYPE:", content_type)
 
         blob = self.bucket.blob(destination_blob_name)
         blob.upload_from_string(file_bytes, content_type=content_type)
@@ -58,9 +58,9 @@ class GCSStorageService:
 
     def upload_file(self, local_file_path: str, destination_blob_name: str, content_type: str = None) -> str:
         print("UPLOADING FILE TO GCS...")
-        print("LOCAL FILE PATH:", local_file_path)
-        print("DESTINATION BLOB:", destination_blob_name)
-        print("CONTENT TYPE:", content_type)
+        # print("LOCAL FILE PATH:", local_file_path)
+        # print("DESTINATION BLOB:", destination_blob_name)
+        # print("CONTENT TYPE:", content_type)
 
         local_path = Path(local_file_path)
         if not local_path.exists():

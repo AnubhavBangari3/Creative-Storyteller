@@ -30,10 +30,10 @@ class GeminiImageService:
         self.output_dir = Path(settings.MEDIA_ROOT) / "generated_images"
         self.output_dir.mkdir(parents=True, exist_ok=True)
 
-        print("USING IMAGE MODEL:", self.model)
-        print("GEMINI ENABLED:", self.gemini_enabled)
-        print("VERTEX IMAGE ENABLED:", self.vertex_image_enabled)
-        print("USE GCS FOR IMAGES:", self.use_gcs_for_images)
+        # print("USING IMAGE MODEL:", self.model)
+        # print("GEMINI ENABLED:", self.gemini_enabled)
+        # print("VERTEX IMAGE ENABLED:", self.vertex_image_enabled)
+        # print("USE GCS FOR IMAGES:", self.use_gcs_for_images)
 
     def _save_image_locally(self, image_bytes: bytes, extension: str = ".png") -> str:
         filename = f"{uuid.uuid4().hex}{extension}"

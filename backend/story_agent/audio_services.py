@@ -27,12 +27,13 @@ class GeminiTTSService:
 
         self.client: Optional[object] = None
 
-        print("TTS SERVICE INITIALIZING...")
-        print("TTS PROVIDER:", self.provider)
-        print("TTS LANGUAGE CODE:", self.language_code)
-        print("TTS VOICE NAME:", self.voice_name)
-        print("TTS AUDIO ENCODING:", self.audio_encoding)
-        print("USE GCS FOR AUDIO:", self.use_gcs_for_audio)
+        
+        # print("TTS SERVICE INITIALIZING...")
+        # print("TTS PROVIDER:", self.provider)
+        # print("TTS LANGUAGE CODE:", self.language_code)
+        # print("TTS VOICE NAME:", self.voice_name)
+        # print("TTS AUDIO ENCODING:", self.audio_encoding)
+        # print("USE GCS FOR AUDIO:", self.use_gcs_for_audio)
 
         if self.provider == "gcp":
             if texttospeech is None:

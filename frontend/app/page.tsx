@@ -661,8 +661,8 @@ export default function Home() {
 
   useEffect(() => {
     if (typeof window !== "undefined") {
-      console.log("NEXT_PUBLIC_API_BASE_URL:", process.env.NEXT_PUBLIC_API_BASE_URL);
-      console.log("API_BASE:", API_BASE);
+     // console.log("NEXT_PUBLIC_API_BASE_URL:", process.env.NEXT_PUBLIC_API_BASE_URL);
+      //console.log("API_BASE:", API_BASE);
     }
   }, []);
 
@@ -741,7 +741,7 @@ export default function Home() {
     try {
       const directorUrl = getApiUrl("/api/story/director/");
 
-      console.log("Director URL:", directorUrl);
+      //console.log("Director URL:", directorUrl);
 
       const directorResponse = await fetch(directorUrl, {
         method: "POST",
